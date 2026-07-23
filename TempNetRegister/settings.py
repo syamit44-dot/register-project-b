@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 import os
+import environ
 from pathlib import Path
 from pickle import FALSE
 from dotenv import load_dotenv
@@ -19,6 +20,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 
+# CAPTCHA
+env = environ.Env()
+TURNSTILE_SECRET_KEY = env("TURNSTILE_SECRET_KEY")
+# RECAPTCHA_SECRET_KEY = env("RECAPTCHA_SECRET_KEY")
 # JWT Keys
 JWT_PRIVATE_KEY = os.environ.get('JWT_PRIVATE_KEY', '')
 JWT_PUBLIC_KEY = os.environ.get('JWT_PUBLIC_KEY', '')
@@ -149,6 +154,13 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # https://docs.djangoproject.com/en/4.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://192.168.1.125:8081",
+    "http://localhost:8081"
+]
 
 CORS_ORIGIN_ALLOW_ALL = False
 CORS_ORIGIN_WHITELIST = (

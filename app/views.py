@@ -19,6 +19,16 @@ class TempNetResponse:
 	 
 @api_view(['POST'])
 def Api_SignUp(request, cmd):
+	# token = request.data.get("captcha_token")
+	# print (token)	
+		
+	# if not token:
+	# 	return Response({"error": "Captcha token not found."}, status=400)
+
+	# is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
+	# if not is_valid:
+	# 	return Response({"error": error}, status=403)
+
 	username = request.data.get('username', None)
 	password = request.data.get('password', None)
 
@@ -26,6 +36,8 @@ def Api_SignUp(request, cmd):
 		return Response({"error": "Please send username and password."}, status=status.HTTP_400_BAD_REQUEST)
 	if not CheckEmailValidate(username):
 		return Response({"error": "Username must be a valid email."}, status=status.HTTP_400_BAD_REQUEST)
+	if not CheckPasswordValidate(password):
+		return Response({"error": "Password must contain only English letters, numbers, and the allowed special characters (! @ # $ % ^ & * ( ) - _ + = ? . ,)."}, status=status.HTTP_400_BAD_REQUEST)
 	if User.objects.filter(username=username).exists():
 		return Response({"error": "Username already exists."}, status=status.HTTP_409_CONFLICT)
 
@@ -40,7 +52,8 @@ def Api_SignUp(request, cmd):
 				first_name=first_name,
 				last_name=last_name,
 			)
-			profile = ProfileUser.objects.create(
+			# profile = ProfileUser.objects.create( #สำหรับ signUp + signIn
+			ProfileUser.objects.create(
 				username=user_core,
 				first_name=user_core.first_name,
 				last_name=user_core.last_name,
@@ -49,25 +62,27 @@ def Api_SignUp(request, cmd):
 		print(f"Error creating user: {str(e)}")
 		return Response({"error": "Failed to create user."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-	# ===== ส่วนที่เพิ่มเข้ามา: generate JWT ให้ user ทันทีหลัง signup =====
-	now = timezone.now()
-	payload = {
-		'uid': user_core.id,
-		'un': user_core.username,
-		'exp': int((now + datetime.timedelta(hours=1)).timestamp()),
-		'iat': int(now.timestamp()),
-	}
-	access_token = jwt_encode(payload)
-	if access_token is None:
-		return Response({"error": "User created but failed to generate token."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#----------สำหรับ signUp + signIn-----------------------------------------------------------------------------------------------|
+	# now = timezone.now()
+	# payload = {
+	# 	'uid': user_core.id,
+	# 	'un': user_core.username,
+	# 	'exp': int((now + datetime.timedelta(hours=1)).timestamp()),
+	# 	'iat': int(now.timestamp()),
+	# }
+	# access_token = jwt_encode(payload)
+	# if access_token is None:
+	# 	return Response({"error": "User created but failed to generate token."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-	return Response({
-		"message": "Created success.",
-		"username": username,
-		"token": access_token,
-		"farm_token": str(profile.token),
-	}, status=status.HTTP_201_CREATED)
+	# return Response({
+	# 	"message": "Created success.",
+	# 	"username": username,
+	# 	"token": access_token,
+	# 	"farm_token": str(profile.token),
+	# }, status=status.HTTP_201_CREATED)
+#------------------------------------------------------------------------------------------------------------------------------|
 
+	return Response({"message": "Created success.","username": username,}, status=status.HTTP_201_CREATED)
 
 @api_view(['POST'])
 def Api_SignIn(request, cmd):
@@ -94,9 +109,11 @@ def Api_SignIn(request, cmd):
 	}
 	access_token = jwt_encode(payload)
 	if access_token is None:
-		return Response({'status': 'Failure', 'message': 'Could not generate token'},
-						 status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+		return Response({'status': 'Failure', 'message': 'Could not generate token'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 	
+
+	print(payload)
+	print(access_token)
 	return Response({
 		'status': 'Success',
 		'username': user.username,
@@ -106,15 +123,14 @@ def Api_SignIn(request, cmd):
 
 
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-def Api_SubmitData(request):
+def Api_FarmData(request):
 	data = request.data
 	return Response({
 		'status': 'Success',
 		'received_from': request.user.username,
 		'data': data,
 	}, status=status.HTTP_200_OK)
+
 # def Check_IpController():
 # 	CHICKATRON20 	 = 'CKTRON20', 'Chickatron 20'
 # 	CHICKATRON20N    = 'CKTRON-N', 'Chickatron 20 New'

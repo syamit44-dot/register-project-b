@@ -5,7 +5,9 @@ from datetime import datetime, date, timedelta
 from typing import Literal
 from django.db import models
 from .models import *
-
+import requests
+from django.conf import settings
+import random 
 
 def ConvertLocalTimeStringtoUTCWithoutOffset(date_time: str | datetime | None) -> str | None:
 	if date_time == None:
@@ -192,12 +194,16 @@ def clamp(n: str | None, min_value: int, max_value: int, default: int) -> int:
 
 
 def CheckEmailValidate(text: str | None) -> bool:
-	if text == None:
+	if text is None:
 		return False
-	else:
-		pattern = r"^\S+@\S+\.\S+$"
-		flag = re.match(pattern, text) != None  # Returns <re.Match object; ...> or None
-		return flag
+	pattern = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
+	return re.match(pattern, text) is not None
+
+def CheckPasswordValidate(text: str | None) -> bool:
+	if text is None:
+		return False
+	pattern = r"^[A-Za-z0-9!@#$%^&*()\-_+=?.,]+$"
+	return re.match(pattern, text) is not None
 
 
 def CheckMACValidate(text: str | None) -> bool:
@@ -334,3 +340,44 @@ def generateData(data: list[dict], houses: list[str] = []) -> list[dict]:
 	newData.sort(key=lambda x: int(x['house']))
 	return newData
 
+def verify_captcha(token, remote_ip=None):
+	response = requests.post(
+		"https://challenges.cloudflare.com/turnstile/v0/siteverify",
+		data={
+			"secret": settings.TURNSTILE_SECRET_KEY,
+			"response": token,
+			"remoteip": remote_ip,
+		},
+		timeout=5,
+	)
+	result = response.json()
+
+	if not result.get("success"):
+		error_codes = result.get("error-codes", [])
+		return False, f"verify ไม่ผ่าน: {', '.join(error_codes) or 'token ไม่ถูกต้อง'}"
+
+	return True, None
+# def verify_captcha(token, remote_ip=None):
+#     response = requests.post(
+#         "https://www.google.com/recaptcha/api/siteverify",
+#         data={
+#             "secret": settings.RECAPTCHA_SECRET_KEY,
+#             "response": token,
+#             "remoteip": remote_ip,
+#         },
+#         timeout=5,
+#     )
+#     result = response.json()
+
+#     if not result.get("success"):
+#         error_codes = result.get("error-codes", [])
+#         return False, f"verify ไม่ผ่าน: {', '.join(error_codes) or 'token ไม่ถูกต้อง'}"
+
+#     return True, None
+
+def generate_otp():
+    """
+    สร้างรหัส OTP 6 หลัก คืนค่าเป็น string เสมอ (รักษาเลข 0 นำหน้าไว้)
+    ทำงานคล้าย uuid.uuid4() ตรงที่เรียกแล้วได้ค่าใหม่ทุกครั้ง ใช้เป็น default ของ field ได้เลย
+    """
+    return f"{random.randint(0, 999999):06d}"

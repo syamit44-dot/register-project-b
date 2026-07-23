@@ -3,6 +3,7 @@ from datetime import datetime
 from django.contrib.auth.models import User
 import uuid
 import pytz
+from utilities import generate_otp
 
 class ModelCountryChoices(models.TextChoices):
     AF = 'Afghanistan', 'Afghanistan'
@@ -331,7 +332,7 @@ class ProfileUserApp(models.Model):
     nameFarm        = models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
     username        = models.CharField("Username/ชื่อผู้ใช้งาน", max_length=50, null=True, blank=True)
     userType        = models.CharField("User type/ระดับของผู้ใช้", max_length=20, choices=USER_CHOICES, default=USER)
-    userEmail           = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
+    userEmail       = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
     date_created    = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -365,3 +366,11 @@ class ProfileTempView(models.Model):
 
     def __str__(self):
         return f'{self.nameFarm}'
+
+class OTP(models.Model):
+    email           = models.EmailField('Email', max_length=10, blank=False, null=False)
+    otpNumber       = models.CharField('OTP', max_length=6, default=generate_otp)
+    date_created    = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.email}' f'{self.otpNumber}'
