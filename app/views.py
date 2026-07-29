@@ -1,9 +1,8 @@
 from django.utils import timezone
 from django.db import transaction
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from .jwt import jwt_encode
@@ -11,6 +10,8 @@ from .models import *
 from .utilities import *
 from .authentication import JWTAuthentication
 import datetime 
+from django.core.mail import EmailMessage
+from app.email_utils import threaded_send_to_email
  
 class TempNetResponse:
 	SUCCESS 	 = {'status': 'Success'}
@@ -19,15 +20,15 @@ class TempNetResponse:
 	 
 @api_view(['POST'])
 def Api_SignUp(request, cmd):
-	# token = request.data.get("captcha_token")
-	# print (token)	
+	token = request.data.get("captcha_token")
+	print (token)	
 		
-	# if not token:
-	# 	return Response({"error": "Captcha token not found."}, status=400)
+	if not token:
+		return Response({"error": "Captcha token not found."}, status=400)
 
-	# is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
-	# if not is_valid:
-	# 	return Response({"error": error}, status=403)
+	is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
+	if not is_valid:
+		return Response({"error": error}, status=403)
 
 	username = request.data.get('username', None)
 	password = request.data.get('password', None)
@@ -61,7 +62,6 @@ def Api_SignUp(request, cmd):
 	except Exception as e:
 		print(f"Error creating user: {str(e)}")
 		return Response({"error": "Failed to create user."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 #----------สำหรับ signUp + signIn-----------------------------------------------------------------------------------------------|
 	# now = timezone.now()
 	# payload = {
@@ -81,8 +81,20 @@ def Api_SignUp(request, cmd):
 	# 	"farm_token": str(profile.token),
 	# }, status=status.HTTP_201_CREATED)
 #------------------------------------------------------------------------------------------------------------------------------|
-
 	return Response({"message": "Created success.","username": username,}, status=status.HTTP_201_CREATED)
+
+# @api_view(['POST'])
+# def Api_Ghost(request, cmd):
+# 	username = request.data.get('username', None)
+# 	password = request.data.get('password', None)
+# 	user_core = User.objects.create_user(
+# 				username=username,
+# 				password=password,
+# 			)
+# 	ProfileUser.objects.create(
+# 				username=user_core,
+# 			)
+# 	return Response()
 
 @api_view(['POST'])
 def Api_SignIn(request, cmd):
@@ -117,56 +129,106 @@ def Api_SignIn(request, cmd):
 	return Response({
 		'status': 'Success',
 		'username': user.username,
+		'first_name': user.first_name,
+		'last_name': user.last_name,
 		'token': access_token,
 		'farm_token': str(profile.token),
 	}, status=status.HTTP_200_OK)
 
 
+@api_view(['POST', 'GET'])
+def Api_GetOTP(request, cmd):
+	email = request.data.get('email', None)
+
+	if not email:
+		return Response({'status': 'Failure', 'message': 'Email required'}, status=status.HTTP_400_BAD_REQUEST)
+
+	if not CheckEmailValidate(email):
+		return Response({"error": "Invalid email address."}, status=status.HTTP_400_BAD_REQUEST)
+
+	if not User.objects.filter(username=email).exists():
+		return Response({"error": "Email not found."}, status=status.HTTP_404_NOT_FOUND)
+
+	check = OTP.objects.filter(email=email)
+	if check.count() >= 5:
+		return Response({"error": "Maximum OTP requests reached. Please try again later."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+	if check.exists():
+		last_otp = check.last()
+		if last_otp.resend_at > timezone.now():
+			return Response({"error": "OTP already sent. Please wait before requesting a new one."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+	try:
+		from_email = ''
+		otp = OTP.objects.create(email=email)
+		subject = "Your OTP Code for resetting your password"
+		message = f"Your OTP code is: {otp.code}"
+		send_mail_obj = EmailMessage(subject, message, from_email, [email])
+		threaded_send_to_email(send_mail_obj)
+		return Response({'status': 'Success', 'message': 'OTP sent successfully'}, status=status.HTTP_200_OK)
+	except Exception as e:
+		print(f"Error sending OTP email: {str(e)}")
+		return Response({"error": "Failed to send OTP email."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 @api_view(['POST'])
-def Api_FarmData(request):
-	data = request.data
-	return Response({
-		'status': 'Success',
-		'received_from': request.user.username,
-		'data': data,
-	}, status=status.HTTP_200_OK)
+def Api_ResetPassword(request, cmd):
+	email = request.data.get('email', None)
+	otp_code = request.data.get('otp_code', None)
+	old_password = request.data.get('old_password', None)
+	new_password = request.data.get('new_password', None)
 
-# def Check_IpController():
-# 	CHICKATRON20 	 = 'CKTRON20', 'Chickatron 20'
-# 	CHICKATRON20N    = 'CKTRON-N', 'Chickatron 20 New'
-# 	CHICKATRONLAYERS = 'CKTRON_L', 'Chickatron Layers'
-# 	CHICKATRONBREEDERS= 'CKTRON_B', 'Chickatron Breeders'
-# 	CHICKATRON13	 = 'CKTRON13', 'Chickatron 13'
-# 	PIGATRON13		 = 'PIG13', 'Pigatron 13'
-# 	T1200P		 	 = 'T1200+', 'Temp1200 Plus'
-# 	RTRON 			 = 'T2004-PK', 'R-Tron'
-# 	RTRON207		 = 'RTROn207', 'R-Tron 207'
-# 	RTRON313		 = 'RTROn313', 'R-Tron 313'
-# 	RTRON612		 = 'RTRON612', 'R-Tron 612'
-# 	RTRON612P		 = 'RT612P', 'R-Tron 612 Pig'
-# 	RTRON620		 = 'RTRON620', 'R-Tron 620'
-# 	PTRON620P		 = 'RT620P', 'R-Tron 620 Pig'
-# 	TP54S 			 = 'TP54S', 'TP54S'
-# 	TP80 			 = 'TP80', 'TP80'
-# 	TP82 			 = 'TP82', 'TP82'
-# 	PUNO207 		 = 'PUNOS207', 'Punos 207'
-# 	PUNO515 		 = 'PUNOS515', 'Punos 515'
-# 	SILONICX         = 'SILO-X', 'Silonic X'
-# 	SILONICXI        = 'SILO-XI', 'Silonic XI'
-# 	OTHER            = 'OTHER', 'Other'
-
-
-# @api_view(['POST'])
-# def RegisterFarm(request):
-# 	if request.method == 'POST':
-# 		serializer = ProfileFarmSerializer(data=request.data)
-		
-# 		if serializer.is_valid():
-# 			serializer.save() 
-# 			return Response(
-# 				data={"message": "Created new farm successfully!", "data": serializer.data}, 
-# 				status=status.HTTP_201_CREATED
-# 			)
-# 		return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+	if not email or not otp_code or not new_password:
+		return Response({'status': 'Failure', 'message': 'Email, OTP code, and new password are required'}, status=status.HTTP_400_BAD_REQUEST)
 	
+	try:
+		otp_entry = OTP.objects.filter(email=email, code=otp_code).last()
 
+		if otp_entry is None:
+			latest = OTP.objects.filter(email=email).last()
+			if latest:
+				latest.attempt_count += 1
+				if latest.attempt_count >= 5:
+					latest.delete()
+					return Response(
+						{'status': 'Failure', 'message': 'Too many failed attempts. Please request a new OTP.'},
+						status=status.HTTP_429_TOO_MANY_REQUESTS,
+					)
+				latest.save(update_fields=['attempt_count'])
+			return Response({'status': 'Failure', 'message': 'Invalid or expired OTP code'}, status=status.HTTP_400_BAD_REQUEST)
+
+		if otp_entry.expires_at < timezone.now():
+			return Response({'status': 'Failure', 'message': 'Invalid or expired OTP code'}, status=status.HTTP_400_BAD_REQUEST)
+			
+		if not CheckEmailValidate(email):
+			return Response({"error": "Invalid email address."}, status=status.HTTP_400_BAD_REQUEST)
+
+		if not CheckPasswordValidate(new_password):
+			return Response({"error": "Password must contain only English letters, numbers, and the allowed special characters (! @ # $ % ^ & * ( ) - _ + = ? . ,)."}, status=status.HTTP_400_BAD_REQUEST,)
+
+		user = User.objects.filter(username=email).first()
+		if user is None:
+			return Response({'status': 'Failure', 'message': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		if old_password is not None and not user.check_password(old_password):
+			return Response({'status': 'Failure', 'message': 'Wrong password'}, status=status.HTTP_400_BAD_REQUEST)
+
+		if user.check_password(new_password):
+			return Response({'status': 'Failure', 'message': 'New password must differ from old password'}, status=status.HTTP_400_BAD_REQUEST)
+
+		user.set_password(new_password)
+		user.save()
+
+		# ลบ OTP ทั้งหมดของ email นี้ทิ้ง ไม่ใช่แค่ตัวที่ใช้
+		OTP.objects.filter(email=email).delete()
+
+		return Response({'status': 'Success', 'message': 'Password reset successfully'}, status=status.HTTP_200_OK)
+	except Exception as e:
+		print(f"Error resetting password: {str(e)}")
+		return Response({"error": "Failed to reset password."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def chang(request, cmd):
+	name = request.data.get('name', None)
+	passowrd = request.data.get('passowrd', None)
+	user = User.objects.filter(username=name, )

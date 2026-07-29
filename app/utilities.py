@@ -7,7 +7,6 @@ from django.db import models
 from .models import *
 import requests
 from django.conf import settings
-import random 
 
 def ConvertLocalTimeStringtoUTCWithoutOffset(date_time: str | datetime | None) -> str | None:
 	if date_time == None:
@@ -375,9 +374,3 @@ def verify_captcha(token, remote_ip=None):
 
 #     return True, None
 
-def generate_otp():
-    """
-    สร้างรหัส OTP 6 หลัก คืนค่าเป็น string เสมอ (รักษาเลข 0 นำหน้าไว้)
-    ทำงานคล้าย uuid.uuid4() ตรงที่เรียกแล้วได้ค่าใหม่ทุกครั้ง ใช้เป็น default ของ field ได้เลย
-    """
-    return f"{random.randint(0, 999999):06d}"

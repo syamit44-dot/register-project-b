@@ -155,16 +155,14 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://192.168.1.125:8081",
-    "http://localhost:8081"
-]
+# CORS_ALLOWED_ORIGINS = [
+#     "http://192.168.1.138:5173",
+#     "http://localhost:8081"
+# ]
 
-CORS_ORIGIN_ALLOW_ALL = False
-CORS_ORIGIN_WHITELIST = (
-)
+CORS_ORIGIN_ALLOW_ALL = True
+# CORS_ORIGIN_WHITELIST = (
+# )
 
 # Email Configuration
 DEFAULT_FROM_EMAIL = "TempNet RegisterApp <temp.app@waterflame.co.th>"

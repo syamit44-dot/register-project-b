@@ -1,12 +1,7 @@
-from datetime import datetime
-from modelsApi import delete_expired_otp
+from apscheduler.schedulers.background import BackgroundScheduler
+from systemUpdater import modelsApi
 
-
-def main():
-    deleted = delete_expired_otp()
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] systemUpdater: ลบ OTP ที่หมดอายุแล้วทิ้ง {deleted} รายการ")
-
-
-if __name__ == "__main__":
-    main()
+def start():
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(modelsApi.delete_expired_otp, 'interval', seconds=10)
+    scheduler.start()

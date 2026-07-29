@@ -3,7 +3,9 @@ from datetime import datetime
 from django.contrib.auth.models import User
 import uuid
 import pytz
-from utilities import generate_otp
+from datetime import timedelta
+from django.utils import timezone
+import random
 
 class ModelCountryChoices(models.TextChoices):
     AF = 'Afghanistan', 'Afghanistan'
@@ -279,6 +281,7 @@ class CloudType(models.TextChoices):
     TEMPVIEW     = 'TEMP_VIEW', 'TempView'
     SILONICXI    = 'SILONIC', 'Silonic XI'
 
+
 class ProfileFarm(models.Model):
     TIMEZONE_CHOICES = zip(pytz.all_timezones, pytz.all_timezones)
     nameFarm 	= models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, null=True, blank=True)
@@ -352,6 +355,7 @@ class ProfileSmartLink(models.Model):
     def __str__(self):
         return f'{self.nameFarm}'
 
+
 class ProfileSilonic(models.Model):
     nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
     house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
@@ -367,10 +371,27 @@ class ProfileTempView(models.Model):
     def __str__(self):
         return f'{self.nameFarm}'
 
+
+def generate_otp_code():
+    return f"{random.randint(0, 999999):06d}"
+def default_expiry_at():
+    return timezone.now() + timedelta(minutes=3)
+def default_resend_at():
+    return timezone.now() + timedelta(seconds=30)
+def default_delete_at():
+    return timezone.now() + timedelta(minutes=5)
+
+
 class OTP(models.Model):
-    email           = models.EmailField('Email', max_length=10, blank=False, null=False)
-    otpNumber       = models.CharField('OTP', max_length=6, default=generate_otp)
-    date_created    = models.DateTimeField(auto_now_add=True)
+    email           = models.CharField('Email', max_length=100)
+    code            = models.CharField('OTP', max_length=6, default=generate_otp_code)
+    attempt_count   = models.PositiveSmallIntegerField(default=0)
+    expires_at      = models.DateTimeField('Expires At', default=default_expiry_at)
+    resend_at       = models.DateTimeField('Resend At', default=default_resend_at)
+    delete_at       = models.DateTimeField('Delete At', default=default_delete_at)
+
+    class Meta:
+        ordering = ['id']
 
     def __str__(self):
-        return f'{self.email}' f'{self.otpNumber}'
+        return f"OTP for {self.email} - Expires at: {self.expires_at}"
