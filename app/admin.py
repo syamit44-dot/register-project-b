@@ -13,27 +13,35 @@ def new_generate_token(modeladmin, request, queryset):
 def generate_farm_id(modeladmin, request, queryset):
     queryset.update(farmId=uuid.uuid4().hex)
 
-class ProfileFarmAdmin(admin.ModelAdmin):
+class ProfileDeviceInline(admin.TabularInline):
+    model = ProfileDevice
+    extra = 0
+    autocomplete_fields = ['nameFarm']
+
+class ProfileUserAppInline(admin.TabularInline):
+    model = ProfileUserApp
+    extra = 0
+    autocomplete_fields = ['nameFarm']
+
+class ProfileFarmMenu(admin.ModelAdmin):
     list_display = ('nameFarm', 'modelTemp', 'numbOfHouse', 'ip_address')
     search_fields = ['nameFarm', 'modelTemp', 'numbOfHouse', 'ip_address']
-admin.site.register(ProfileFarm, ProfileFarmAdmin)
+
+    def number_Of_House(self, obj):
+        _numberOfHouse = ProfileDevice.objects.filter(nameFarm=obj.id).count()
+        _numberOfHouse += ProfileUserApp.objects.filter(nameFarm=obj.id).count()
+        return _numberOfHouse
+
+    inlines = [ProfileDeviceInline, ProfileUserAppInline]
+admin.site.register(ProfileFarm, ProfileFarmMenu)
+
 
 class ProfileUserAdmin(admin.ModelAdmin):
     list_display = ('username', 'first_name', 'last_name', 'token')
     search_fields = ('username', 'first_name', 'last_name', 'token')
 admin.site.register(ProfileUser, ProfileUserAdmin)
 
-class ProfileSmartLinkAdmin(admin.ModelAdmin):
+class ProfileDeviceAdmin(admin.ModelAdmin):
     list_display = ('nameFarm', 'house', 'serialNumber')
     search_fields = ['nameFarm', 'house', 'serialNumber']
-admin.site.register(ProfileSmartLink, ProfileSmartLinkAdmin)
-
-class ProfileSilonicAdmin(admin.ModelAdmin):
-    list_display = ('nameFarm', 'house', 'serialNumber')
-    search_fields = ['nameFarm', 'house', 'serialNumber']
-admin.site.register(ProfileSilonic, ProfileSilonicAdmin)
-
-class ProfileTempViewAdmin(admin.ModelAdmin):
-    list_display = ('nameFarm', 'house')
-    search_fields = ['nameFarm', 'house']
-admin.site.register(ProfileTempView, ProfileTempViewAdmin)
+admin.site.register(ProfileDevice, ProfileDeviceAdmin)

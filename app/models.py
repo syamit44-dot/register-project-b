@@ -286,14 +286,13 @@ class ProfileFarm(models.Model):
     TIMEZONE_CHOICES = zip(pytz.all_timezones, pytz.all_timezones)
     nameFarm 	= models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, null=True, blank=True)
     numbOfHouse = models.CharField("Number of House/จำนวนโรงเรือน", max_length=10, default='1')
-    cloudType   = models.CharField("ประเภทในการขึ้นอิเทอร์เน็ต", max_length=20, choices=CloudType.choices, default=CloudType.SMARTLINK)
+    Type        = models.CharField("ประเภท", max_length=20, choices=CloudType.choices, default=CloudType.SMARTLINK)
     modelTemp   = models.CharField("รุ่นเครื่อง", max_length=20, choices=ModelControllerChoices.choices, default=ModelControllerChoices.CHICKATRON20)
     ip_address  = models.CharField("หมายเลข IP Controller", max_length=100, default='68.183.231.70:8001')
     ip_manage   = models.CharField("หมายเลข IP Management", max_length=100, default='152.42.174.114:8000')
-    ws_address  = models.CharField('WebSocket Address', max_length=100, null=True, blank=True)
     companyName = models.CharField("Company Name/ชื่อฟาร์ม", max_length=100, null=True, blank=True)
     address1    = models.CharField("Address Line1/ที่อยู่1", max_length=100, null=True, blank=True)
-    address2    = models.CharField("Address Line1/ที่อยู่", max_length=100, null=True, blank=True)
+    address2    = models.CharField("Address Line2/ที่อยู่2", max_length=100, null=True, blank=True)
     townCity    = models.CharField("Town/City/อำเภอ/เขต", max_length=50, null=True, blank=True)
     province    = models.CharField("Province/จังหวัด", max_length=50, null=True, blank=True)
     country	    = models.CharField("Country/ประเทศ", max_length=50, choices=ModelCountryChoices.choices, default=ModelCountryChoices.TH)
@@ -301,9 +300,10 @@ class ProfileFarm(models.Model):
     contact		= models.CharField("Contact Person/ผู้ติดต่อ", max_length=50, null=True, blank=True)
     mobile 		= models.CharField("Phone/เบอร์โทรศัพท์", max_length=50, null=True, blank=True)
     emailFarm   = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
-    timezone    = models.CharField("Time Zone",max_length=50, choices=TIMEZONE_CHOICES, default='Asia/Bangkok')
+    timezone    = models.CharField("Time Zone", max_length=50, choices=TIMEZONE_CHOICES, default='Asia/Bangkok')
     date_created = models.DateTimeField(auto_now_add=True)
     token       = models.CharField("Access Token", max_length=50, null=True, blank=True)
+    note        = models.CharField("Note/หมายเหตุ", max_length=500, null=True, blank=True)
 
     def __str__(self):
         return f'{self.nameFarm} | {self.modelTemp}'
@@ -314,7 +314,6 @@ class ProfileUser(models.Model):
     last_name       = models.CharField(max_length=50, null=True, blank=True)
     token           = models.UUIDField("Access Token", max_length=100, default=uuid.uuid1)
     date_created    = models.DateTimeField(auto_now_add=True)
-
 
     def save(self, *args, **kwargs):
         if self.username:
@@ -339,34 +338,12 @@ class ProfileUserApp(models.Model):
     date_created    = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return self.username.username
-
-class ProfileSmartLink(models.Model):
-    nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
-    house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
-    serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=False, null=False)
-    # alarm04         = models.BooleanField('ALARM04', default=False)
-    # alarm05         = models.BooleanField('ALARM05', default=False) 
-    # aimc            = models.BooleanField('AIMC-2', default=False)
-    # dim             = models.BooleanField('DIM-T', default=False)
-    # tunnelInlet     = models.BooleanField('Tunnel Door Air Inlet', default=False)
-    # sideInlet     = models.BooleanField('Side Wall Air Inlet', default=False)
-
-    def __str__(self):
         return f'{self.nameFarm}'
 
-
-class ProfileSilonic(models.Model):
+class ProfileDevice(models.Model):
     nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
     house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
-    serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=False, null=False)
-
-    def __str__(self):
-        return f'{self.nameFarm}'
-    
-class ProfileTempView(models.Model):
-    nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
-    house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
+    serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
 
     def __str__(self):
         return f'{self.nameFarm}'

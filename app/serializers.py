@@ -7,22 +7,17 @@ class ProfileFarmSerializer(serializers.ModelSerializer):
         model = ProfileFarm
         fields = '__all__'
 
-class ProfileSmartLinkSerializer(serializers.ModelSerializer):
+class ProfileDeviceSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ProfileSmartLink
+        model = ProfileDevice
         fields = '__all__'
 
-class ProfileTempViewSerializer(serializers.ModelSerializer):
+class ProfileUserAppSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ProfileTempView
-        fields = '__all__'
-
-class ProfileSilonicSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProfileSilonic
+        model = ProfileUserApp
         fields = '__all__'
 
 class ProfileUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProfileUser
-        fields = ['id', 'username', 'userType', 'mobile']
+        fields = '__all__'

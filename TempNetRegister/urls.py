@@ -33,9 +33,9 @@ urlpatterns = [
     # url(r'^api/register-farm$', views.RegisterFarm, {'cmd': None})
     url(r'^api/signin$', views.Api_SignIn , {'cmd': None}),
     url(r'^api/signup$', views.Api_SignUp , {'cmd': None}),
-    # url(r'^api/ghost$', views.Api_Ghost , {'cmd': None}),
 
-    url(r'^api/getotp$', views.Api_GetOTP , {'cmd': None}),
-    url(r'^api/reset-password$', views.Api_ResetPassword , {'cmd': None}),
+    # url(r'^api/getotp$', views.Api_GetOTP , {'cmd': None}),
+    # url(r'^api/reset-password$', views.Api_ResetPassword , {'cmd': None}),
 
+    url(r'^api/get-farm$', views.Api_GetFarm , {'cmd': None}),
 ]
