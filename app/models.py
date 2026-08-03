@@ -6,6 +6,8 @@ import pytz
 from datetime import timedelta
 from django.utils import timezone
 import random
+import secrets
+import string
 
 class ModelCountryChoices(models.TextChoices):
     AF = 'Afghanistan', 'Afghanistan'
@@ -276,19 +278,45 @@ class ModelControllerChoices(models.TextChoices):
     SILONICXI        = 'SILO-XI', 'Silonic XI'
     OTHER            = 'OTHER', 'Other'
 
-class CloudType(models.TextChoices):
+class Type(models.TextChoices):
     SMARTLINK 	 = 'SMART_LINK', 'SmartLink'
     TEMPVIEW     = 'TEMP_VIEW', 'TempView'
     SILONICXI    = 'SILONIC', 'Silonic XI'
+    EGGAI        = 'EGGAI1', 'Egg-Ai1'
+
+
+
+def generate_key():
+    chars = string.ascii_uppercase + string.digits
+    return "-".join(
+        "".join(secrets.choice(chars) for _ in range(4))
+        for _ in range(3)
+    )
+def key_expire():
+    return timezone.now() + timedelta(minutes=2)
+
+class AccessKey(models.Model):
+    user = models.CharField("User", max_length=50, blank=True, null=True)
+    sale = models.CharField("Sale", max_length=50, blank=True, null=True)
+    key = models.CharField("AccessKey", max_length=14, unique=True, default=generate_key)
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField("Create Date", auto_now_add=True)
+    used_at = models.DateTimeField("Used Date", blank=True, null=True)
+    expired_at = models.DateTimeField("Expire Date", default=key_expire)
+
+    class Meta:
+        db_table = "access_keys"
+
+    def __str__(self):
+        return self.key
 
 
 class ProfileFarm(models.Model):
     TIMEZONE_CHOICES = zip(pytz.all_timezones, pytz.all_timezones)
     nameFarm 	= models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, null=True, blank=True)
     numbOfHouse = models.CharField("Number of House/จำนวนโรงเรือน", max_length=10, default='1')
-    Type        = models.CharField("ประเภท", max_length=20, choices=CloudType.choices, default=CloudType.SMARTLINK)
     modelTemp   = models.CharField("รุ่นเครื่อง", max_length=20, choices=ModelControllerChoices.choices, default=ModelControllerChoices.CHICKATRON20)
-    ip_address  = models.CharField("หมายเลข IP Controller", max_length=100, default='68.183.231.70:8001')
+    ip_address  = models.CharField("หมายเลข IP Controller", max_length=100, default='159.65.6.83:8001')
     ip_manage   = models.CharField("หมายเลข IP Management", max_length=100, default='152.42.174.114:8000')
     companyName = models.CharField("Company Name/ชื่อฟาร์ม", max_length=100, null=True, blank=True)
     address1    = models.CharField("Address Line1/ที่อยู่1", max_length=100, null=True, blank=True)
@@ -307,6 +335,7 @@ class ProfileFarm(models.Model):
 
     def __str__(self):
         return f'{self.nameFarm} | {self.modelTemp}'
+
 
 class ProfileUser(models.Model):
     username        = models.OneToOneField(User, on_delete=models.CASCADE)
@@ -327,6 +356,7 @@ class ProfileUser(models.Model):
     def __str__(self):
         return self.username.username
 
+
 class ProfileUserApp(models.Model):
     USER            = 'User'
     SUPERUSER       = 'Superuser'
@@ -341,6 +371,7 @@ class ProfileUserApp(models.Model):
         return f'{self.nameFarm}'
 
 class ProfileDevice(models.Model):
+    type            = models.CharField("รุ่นเครื่อง", max_length=20, choices=Type.choices, default=Type.SMARTLINK)
     nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
     house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
     serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)

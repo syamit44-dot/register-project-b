@@ -38,4 +38,5 @@ urlpatterns = [
     # url(r'^api/reset-password$', views.Api_ResetPassword , {'cmd': None}),
 
     url(r'^api/get-farm$', views.Api_GetFarm , {'cmd': None}),
+    url(r'^api/generate$', views.Api_AccessKey , {'cmd': None}),
 ]

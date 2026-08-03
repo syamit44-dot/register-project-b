@@ -13,6 +13,11 @@ def new_generate_token(modeladmin, request, queryset):
 def generate_farm_id(modeladmin, request, queryset):
     queryset.update(farmId=uuid.uuid4().hex)
 
+class AccessKeyAdmin(admin.ModelAdmin):
+    list_display = ('user', 'sale', 'key', 'is_used', 'created_at','used_at', 'expired_at')
+    search_fields = ['user', 'sale', 'key', 'is_used']
+admin.site.register(AccessKey, AccessKeyAdmin)
+
 class ProfileDeviceInline(admin.TabularInline):
     model = ProfileDevice
     extra = 0

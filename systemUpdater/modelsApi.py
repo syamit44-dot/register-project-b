@@ -4,6 +4,14 @@ from app import models
 from app import serializers
 
 
+def key_expire():
+    now = timezone.now()
+
+    key = models.AccessKey.objects.filter(expired_at__lte=now, is_used=False)
+    print (key)
+    key.delete()
+    return
+
 def delete_expired_otp():
     now = timezone.now()
     total_deleted = 0

@@ -35,11 +35,34 @@ class TempNetResponseMsg:
 	CSV_ONLY	 		 = {'status': 'Failure', 'message': 'Supported CSV only'}
 	FIELD_ERR	 		 = {'status': 'Failure', 'message': 'Field name error'}
 	NO_DATETIME 		 = {'status': 'Failure', 'message': 'No date_time or invalid date_time'}
-	 
+
+
+@api_view(['POST'])
+def Api_AccessKey(request, cmd):
+    username = request.data.get('username')
+    password = request.data.get('password')
+    saleName = request.data.get('saleName')
+
+    if not username or not password:
+        return Response({"error": "Not username or password."}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = authenticate(username=username, password=password)
+    if user is None:
+       return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    if not (user.is_superuser and user.is_staff):
+        return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
+
+    if not saleName:
+        return Response({"error": "Who is you sale?."}, status=status.HTTP_400_BAD_REQUEST)
+
+    AccessKey.objects.create(sale=saleName)
+    return Response({"detail": "created"}, status=201)
+
+
 @api_view(['POST'])
 def Api_SignUp(request, cmd):
-	token = request.data.get("captcha_token")
-	print (token)	
+	token = request.data.get("captcha_token")	
 		
 	if not token:
 		return Response({"error": "Captcha token not found."}, status=400)
@@ -54,9 +77,9 @@ def Api_SignUp(request, cmd):
 	if not username or not password:
 		return Response({"error": "Please send username and password."}, status=status.HTTP_400_BAD_REQUEST)
 	if not CheckEmailValidate(username):
-		return Response({"error": "Username must be a valid email."}, status=status.HTTP_400_BAD_REQUEST)
+		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
 	if not CheckPasswordValidate(password):
-		return Response({"error": "Password must contain only English letters, numbers, and the allowed special characters (! @ # $ % ^ & * ( ) - _ + = ? . ,)."}, status=status.HTTP_400_BAD_REQUEST)
+		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
 	if User.objects.filter(username=username).exists():
 		return Response({"error": "Username already exists."}, status=status.HTTP_409_CONFLICT)
 
@@ -80,6 +103,7 @@ def Api_SignUp(request, cmd):
 	except Exception as e:
 		print(f"Error creating user: {str(e)}")
 		return Response({"error": "Failed to create user."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 #----------สำหรับ signUp + signIn-----------------------------------------------------------------------------------------------|
 	# now = timezone.now()
 	# payload = {
@@ -99,6 +123,7 @@ def Api_SignUp(request, cmd):
 	# 	"farm_token": str(profile.token),
 	# }, status=status.HTTP_201_CREATED)
 #------------------------------------------------------------------------------------------------------------------------------|
+
 	return Response({"message": "Created success.","username": username,}, status=status.HTTP_201_CREATED)
 
 
