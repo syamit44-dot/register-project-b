@@ -5,11 +5,21 @@ from .models import *
 class ProfileFarmSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProfileFarm
-        fields = '__all__'
+        exclude = ['token', 'ip_address', 'ip_manage']
 
 class ProfileDeviceSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProfileDevice
+        fields = '__all__'
+
+class ProfileSilonicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProfileSilonic
+        fields = '__all__'
+
+class ProfileEggAiSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProfileEggAi
         fields = '__all__'
 
 class ProfileUserAppSerializer(serializers.ModelSerializer):

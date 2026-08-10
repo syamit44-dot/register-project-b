@@ -3,6 +3,8 @@ from django.db import transaction
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny
+from rest_framework.decorators import permission_classes
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from .jwt import *
@@ -39,41 +41,46 @@ class TempNetResponseMsg:
 
 @api_view(['POST'])
 def Api_AccessKey(request, cmd):
-    username = request.data.get('username')
-    password = request.data.get('password')
-    saleName = request.data.get('saleName')
+	username = request.data.get('username')
+	password = request.data.get('password')
+	saleName = request.data.get('saleName')
 
-    if not username or not password:
-        return Response({"error": "Not username or password."}, status=status.HTTP_400_BAD_REQUEST)
+	if not username or not password:
+		return Response({"error": "Not username or password."}, status=status.HTTP_400_BAD_REQUEST)
 
-    user = authenticate(username=username, password=password)
-    if user is None:
-       return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
+	user = authenticate(username=username, password=password)
+	if user is None:
+		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
 
-    if not (user.is_superuser and user.is_staff):
-        return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
+	if not (user.is_superuser and user.is_staff):
+		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
 
-    if not saleName:
-        return Response({"error": "Who is you sale?."}, status=status.HTTP_400_BAD_REQUEST)
+	if not saleName:
+		return Response({"error": "Who is you sale?."}, status=status.HTTP_400_BAD_REQUEST)
 
-    AccessKey.objects.create(sale=saleName)
-    return Response({"detail": "created"}, status=201)
+	AccessKey.objects.create(sale=saleName)
+	return Response({"detail": "created"}, status=201)
 
 
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def Api_SignUp(request, cmd):
-	token = request.data.get("captcha_token")	
-		
-	if not token:
-		return Response({"error": "Captcha token not found."}, status=400)
-
-	is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
-	if not is_valid:
-		return Response({"error": error}, status=403)
-
 	username = request.data.get('username', None)
 	password = request.data.get('password', None)
+	accessKey = request.data.get('accessKey', None)
+	country = request.data.get('country', None)
+	mobile = request.data.get('mobile', None)
+	# token = request.data.get("captcha_token")
+		
+	# if not token:
+	# 	return Response({"error": "Captcha token not found."}, status=400)
 
+	# is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
+	# if not is_valid:
+	# 	return Response({"error": error}, status=403)
+
+	if not accessKey:
+		return Response({"error": "No access."}, status=status.HTTP_400_BAD_REQUEST)
 	if not username or not password:
 		return Response({"error": "Please send username and password."}, status=status.HTTP_400_BAD_REQUEST)
 	if not CheckEmailValidate(username):
@@ -88,49 +95,50 @@ def Api_SignUp(request, cmd):
 
 	try:
 		with transaction.atomic():
+			check = AccessKey.objects.select_for_update().filter(key=accessKey).first()
+			if check is None:
+				return Response({"error": "Not access"}, status=status.HTTP_401_UNAUTHORIZED)
+			if check.is_used == True:
+				return Response({"error": "Not access"}, status=status.HTTP_401_UNAUTHORIZED)
+
 			user_core = User.objects.create_user(
 				username=username,
 				password=password,
 				first_name=first_name,
 				last_name=last_name,
 			)
-			# profile = ProfileUser.objects.create( #สำหรับ signUp + signIn
 			ProfileUser.objects.create(
 				username=user_core,
 				first_name=user_core.first_name,
 				last_name=user_core.last_name,
+				mobile=mobile,
+				country=country
 			)
+			check.user = username
+			check.is_used = True
+			check.used_at = timezone.now()
+			check.save()
+
 	except Exception as e:
 		print(f"Error creating user: {str(e)}")
 		return Response({"error": "Failed to create user."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-#----------สำหรับ signUp + signIn-----------------------------------------------------------------------------------------------|
-	# now = timezone.now()
-	# payload = {
-	# 	'uid': user_core.id,
-	# 	'un': user_core.username,
-	# 	'exp': int((now + datetime.timedelta(hours=1)).timestamp()),
-	# 	'iat': int(now.timestamp()),
-	# }
-	# access_token = jwt_encode(payload)
-	# if access_token is None:
-	# 	return Response({"error": "User created but failed to generate token."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-	# return Response({
-	# 	"message": "Created success.",
-	# 	"username": username,
-	# 	"token": access_token,
-	# 	"farm_token": str(profile.token),
-	# }, status=status.HTTP_201_CREATED)
-#------------------------------------------------------------------------------------------------------------------------------|
 
 	return Response({"message": "Created success.","username": username,}, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def Api_SignIn(request, cmd):
 	username = request.data.get('username', None)
 	password = request.data.get('password', None)
+	# token = request.data.get("captcha_token")
+		
+	# if not token:
+	# 	return Response({"error": "Captcha token not found."}, status=400)
+
+	# is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
+	# if not is_valid:
+	# 	return Response({"error": error}, status=403)
 
 	if not username or not password:
 		return Response({'status': 'Failure', 'message': 'Username and password required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -143,149 +151,85 @@ def Api_SignIn(request, cmd):
 	if profile is None:
 		return Response({'status': 'Failure', 'message': 'User not registered'}, status=status.HTTP_404_NOT_FOUND)
 
-	now = timezone.now()
-	payload = {
-		'uid': user.id,
-		'un': user.username,
-		'exp': int((now + datetime.timedelta(hours=1)).timestamp()),
-		'iat': int(now.timestamp()),
-	}
-	access_token = jwt_encode(payload)
-	if access_token is None:
-		return Response({'status': 'Failure', 'message': 'Could not generate token'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-	
+	access_token = create_access_token(user)
+	refresh_token = create_refresh_token(user)
 
-	print(payload)
-	print(access_token)
-	return Response({
+	if access_token is None or refresh_token is None:
+		return Response({'status': 'Failure', 'message': 'Could not generate token'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+	response = Response({
 		'status': 'Success',
 		'username': user.username,
 		'first_name': user.first_name,
 		'last_name': user.last_name,
-		'token': access_token
+		'access_token': access_token,
 	}, status=status.HTTP_200_OK)
 
-#==================ยังไม่ใช้ใน Version==================
-# @api_view(['POST', 'GET'])
-# def Api_GetOTP(request, cmd):
-# 	email = request.data.get('email', None)
-
-# 	if not email:
-# 		return Response({'status': 'Failure', 'message': 'Email required'}, status=status.HTTP_400_BAD_REQUEST)
-
-# 	if not CheckEmailValidate(email):
-# 		return Response({"error": "Invalid email address."}, status=status.HTTP_400_BAD_REQUEST)
-
-# 	if not User.objects.filter(username=email).exists():
-# 		return Response({"error": "Email not found."}, status=status.HTTP_404_NOT_FOUND)
-
-# 	check = OTP.objects.filter(email=email)
-# 	if check.count() >= 5:
-# 		return Response({"error": "Maximum OTP requests reached. Please try again later."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-# 	if check.exists():
-# 		last_otp = check.last()
-# 		if last_otp.resend_at > timezone.now():
-# 			return Response({"error": "OTP already sent. Please wait before requesting a new one."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-
-# 	try:
-# 		from_email = ''
-# 		otp = OTP.objects.create(email=email)
-# 		subject = "Your OTP Code for resetting your password"
-# 		message = f"Your OTP code is: {otp.code}"
-# 		send_mail_obj = EmailMessage(subject, message, from_email, [email])
-# 		threaded_send_to_email(send_mail_obj)
-# 		return Response({'status': 'Success', 'message': 'OTP sent successfully'}, status=status.HTTP_200_OK)
-# 	except Exception as e:
-# 		print(f"Error sending OTP email: {str(e)}")
-# 		return Response({"error": "Failed to send OTP email."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+	response.set_cookie(
+		'refresh_token',
+		refresh_token,
+		httponly=True,
+		secure=True,
+		samesite='Lax',
+		max_age=7*24*60*60,
+	)
+	return response
 
 
-# @api_view(['POST'])
-# def Api_ResetPassword(request, cmd):
-# 	email = request.data.get('email', None)
-# 	otp_code = request.data.get('otp_code', None)
-# 	old_password = request.data.get('old_password', None)
-# 	new_password = request.data.get('new_password', None)
+@api_view(['POST'])
+def Api_RefreshToken(request, cmd):
+	token = request.COOKIES.get('refresh_token')
+	if not token:
+		return Response({'status': 'Failure', 'message': 'refresh_token required'}, status=status.HTTP_401_UNAUTHORIZED)
 
-# 	if not email or not otp_code or not new_password:
-# 		return Response({'status': 'Failure', 'message': 'Email, OTP code, and new password are required'}, status=status.HTTP_400_BAD_REQUEST)
-	
-# 	try:
-# 		otp_entry = OTP.objects.filter(email=email, code=otp_code).last()
+	payload = jwt_decode(token)
+	if not payload or payload.get('type') != 'refresh':
+		return Response({'status': 'Failure', 'message': 'Invalid refresh token'}, status=status.HTTP_401_UNAUTHORIZED)
 
-# 		if otp_entry is None:
-# 			latest = OTP.objects.filter(email=email).last()
-# 			if latest:
-# 				latest.attempt_count += 1
-# 				if latest.attempt_count >= 5:
-# 					latest.delete()
-# 					return Response(
-# 						{'status': 'Failure', 'message': 'Too many failed attempts. Please request a new OTP.'},
-# 						status=status.HTTP_429_TOO_MANY_REQUESTS,
-# 					)
-# 				latest.save(update_fields=['attempt_count'])
-# 			return Response({'status': 'Failure', 'message': 'Invalid or expired OTP code'}, status=status.HTTP_400_BAD_REQUEST)
+	try:
+		rt = RefreshToken.objects.get(jti=payload['jti'], revoked=False)
+	except RefreshToken.DoesNotExist:
+		return Response({'status': 'Failure', 'message': 'Invalid refresh token'}, status=status.HTTP_401_UNAUTHORIZED)
 
-# 		if otp_entry.expires_at < timezone.now():
-# 			return Response({'status': 'Failure', 'message': 'Invalid or expired OTP code'}, status=status.HTTP_400_BAD_REQUEST)
-			
-# 		if not CheckEmailValidate(email):
-# 			return Response({"error": "Invalid email address."}, status=status.HTTP_400_BAD_REQUEST)
+	if rt.expires_at <= timezone.now():
+		return Response({'status': 'Failure', 'message': 'Refresh token expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
-# 		if not CheckPasswordValidate(new_password):
-# 			return Response({"error": "Password must contain only English letters, numbers, and the allowed special characters (! @ # $ % ^ & * ( ) - _ + = ? . ,)."}, status=status.HTTP_400_BAD_REQUEST,)
+	new_access_token = create_access_token(rt.user)
+	if new_access_token is None:
+		return Response({'status': 'Failure', 'message': 'Could not generate token'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# 		user = User.objects.filter(username=email).first()
-# 		if user is None:
-# 			return Response({'status': 'Failure', 'message': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
-
-# 		if old_password is not None and not user.check_password(old_password):
-# 			return Response({'status': 'Failure', 'message': 'Wrong password'}, status=status.HTTP_400_BAD_REQUEST)
-
-# 		if user.check_password(new_password):
-# 			return Response({'status': 'Failure', 'message': 'New password must differ from old password'}, status=status.HTTP_400_BAD_REQUEST)
-
-# 		user.set_password(new_password)
-# 		user.save()
-
-# 		# ลบ OTP ทั้งหมดของ email นี้ทิ้ง ไม่ใช่แค่ตัวที่ใช้
-# 		OTP.objects.filter(email=email).delete()
-
-# 		return Response({'status': 'Success', 'message': 'Password reset successfully'}, status=status.HTTP_200_OK)
-# 	except Exception as e:
-# 		print(f"Error resetting password: {str(e)}")
-# 		return Response({"error": "Failed to reset password."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+	return Response({
+		'status': 'Success',
+		'access_token': new_access_token,
+	}, status=status.HTTP_200_OK)
 
 
-@api_view(['POST','GET'])
+def get_bearer_token(request):
+	"""ดึง token จาก header: Authorization: Bearer <token>"""
+	auth_header = request.headers.get('Authorization', '')
+	if not auth_header.startswith('Bearer '):
+		return None
+	return auth_header.split(' ', 1)[1].strip()
+
+
+@api_view(['POST', 'GET'])
 def Api_GetFarm(request, cmd):
-	access_token = request.data.get('access_token', None)
-	username = request.data.get('username', None)
-
-	if not jwt_decode(access_token):
+	access_token = get_bearer_token(request)
+	if not access_token:
 		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
 
-	user = ProfileUser.objects.filter(username__username=username).first()
-	if not user:
-		return Response(data=TempNetResponseMsg.NO_USER, status=status.HTTP_404_NOT_FOUND)
-
-	dt = []
-	dt = ProfileFarm.objects.filter(token=user.token)
-	# for farm in farmData:
-	
-	serializer = ProfileFarmSerializer(dt, many=True)
-	return Response(serializer.data)
-
-
-@api_view(['POST','GET'])
-def Api_GetFarm(request, cmd):
-	access_token = request.data.get('access_token', None)
-	username = request.data.get('username', None)
-
-	if not jwt_decode(access_token):
+	payload = jwt_decode(access_token)
+	if not payload:
 		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
 
-	user = ProfileUser.objects.filter(username__username=username).first()
+	if payload.get('type') != 'access':
+		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
+
+	uid = payload.get('uid')
+	if not uid:
+		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
+
+	user = ProfileUser.objects.filter(username__id=uid).first()
 	if not user:
 		return Response(data=TempNetResponseMsg.NO_USER, status=status.HTTP_404_NOT_FOUND)
 
@@ -293,11 +237,15 @@ def Api_GetFarm(request, cmd):
 	farmDatas = ProfileFarm.objects.filter(token=user.token)
 	for farmData in farmDatas:
 		device = ProfileDevice.objects.filter(nameFarm__nameFarm=farmData.nameFarm)
+		silonic = ProfileSilonic.objects.filter(nameFarm__nameFarm=farmData.nameFarm)
+		egg = ProfileEggAi.objects.filter(nameFarm__nameFarm=farmData.nameFarm)
 		userapp = ProfileUserApp.objects.filter(nameFarm__nameFarm=farmData.nameFarm)
 
 		dt.append({
 			"farm": ProfileFarmSerializer(farmData).data,
 			"device": ProfileDeviceSerializer(device, many=True).data,
+			"silonic": ProfileSilonicSerializer(silonic, many=True).data,
+			"egg": ProfileEggAiSerializer(egg, many=True).data,
 			"userapp": ProfileUserAppSerializer(userapp, many=True).data,
 		})
 
@@ -306,12 +254,120 @@ def Api_GetFarm(request, cmd):
 
 @api_view(['POST','GET'])
 def Api_NewFarm(request, cmd):
-	access_token = request.data.get('access_token', None)
-	username = request.data.get('username', None)
-
-	if not jwt_decode(access_token):
+	access_token = get_bearer_token(request)
+	if not access_token:
 		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
 
-	user = ProfileUser.objects.filter(username__username=username).first()
+	payload = jwt_decode(access_token)
+	if not payload:
+		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
+
+	if payload.get('type') != 'access':
+		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
+
+	uid = payload.get('uid')
+	if not uid:
+		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
+
+	user = ProfileUser.objects.filter(username__id=uid).first()
 	if not user:
 		return Response(data=TempNetResponseMsg.NO_USER, status=status.HTTP_404_NOT_FOUND)
+
+	if request.method == 'POST':
+		if cmd == 'create':
+			try:
+				with transaction.atomic():
+					body = request.data
+
+					farm_data = body.get("farm", {})
+					devices = body.get("device", [])
+					silonics = body.get("silonic", [])
+					eggs = body.get("egg", [])
+					users = body.get("userapp", [])
+
+					farm_data = farm_data.copy()
+					farm_data.pop("id", None)
+
+					name_farm = farm_data.get("nameFarm")
+					if not name_farm:
+						return Response(
+							{"message": "error", "detail": "กรุณาระบุชื่อฟาร์ม (nameFarm)"},
+							status=status.HTTP_400_BAD_REQUEST
+						)
+
+					if ProfileFarm.objects.filter(nameFarm=name_farm).exists():
+						return Response(
+							{"message": "error", "detail": f"ชื่อฟาร์ม '{name_farm}' นี้มีอยู่แล้ว"},
+							status=status.HTTP_400_BAD_REQUEST
+						)
+
+					farm_data["token"] = str(user.token)
+
+					farm_serializer = ProfileFarmSerializer(data=farm_data)
+					farm_serializer.is_valid(raise_exception=True)
+					farm_obj = farm_serializer.save()
+
+					devices_update = []
+					silonic_update = []
+					egg_update = []
+
+					for device in devices:
+						new = ProfileDevice(
+							nameFarm=farm_obj,
+							type=device.get("type"),
+							modelTemp=device.get("modelTemp"),
+							house=device.get("house", "1"),
+							controllerSN=device.get("controllerSN"),
+							smartlinkSN=device.get("smartlinkSN"),
+						)
+						devices_update.append(new)
+
+					for silonic in silonics:
+						new = ProfileSilonic(
+							nameFarm=farm_obj,
+							house=silonic.get("house", "1"),
+							serialNumber=silonic.get("serialNumber"),
+						)
+						silonic_update.append(new)
+
+					for egg in eggs:
+						egg = egg.copy()
+						egg.pop("id", None)
+						egg["nameFarm"] = farm_obj.id
+						egg_serializer = ProfileEggAiSerializer(data=egg)
+						egg_serializer.is_valid(raise_exception=True)
+						egg_serializer.save()
+
+					for u in users:
+						u = u.copy()
+						u.pop("id", None)
+						u["nameFarm"] = farm_obj.id
+						user_serializer = ProfileUserAppSerializer(data=u)
+						user_serializer.is_valid(raise_exception=True)
+						user_serializer.save()
+
+					return Response(
+						{"message": "ok", "farm_id": farm_obj.id},
+						status=status.HTTP_201_CREATED
+					)	
+
+			except serializers.ValidationError as e:
+				return Response(
+					{"message": "error", "detail": e.detail},
+					status=status.HTTP_400_BAD_REQUEST
+				)
+			except Exception as e:
+				return Response(
+					{"message": "error", "detail": str(e)},
+					status=status.HTTP_400_BAD_REQUEST
+				)
+
+		return Response(
+			{"message": "error", "detail": f"ไม่รู้จักคำสั่ง cmd='{cmd}'"},
+			status=status.HTTP_400_BAD_REQUEST
+		)
+
+	return Response(
+		{"message": "error", "detail": "Method not allowed for this cmd"},
+		status=status.HTTP_405_METHOD_NOT_ALLOWED
+	)

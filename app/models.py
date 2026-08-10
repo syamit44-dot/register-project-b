@@ -8,6 +8,7 @@ from django.utils import timezone
 import random
 import secrets
 import string
+from django.conf import settings
 
 class ModelCountryChoices(models.TextChoices):
     AF = 'Afghanistan', 'Afghanistan'
@@ -255,50 +256,50 @@ class ModelCountryChoices(models.TextChoices):
     ZW = 'Zimbabwe', 'Zimbabwe'
     
 class ModelControllerChoices(models.TextChoices):
-    CHICKATRON20 	 = 'CKTRON20', 'Chickatron 20'
-    CHICKATRON20N    = 'CKTRON-N', 'Chickatron 20 New'
-    CHICKATRONLAYERS = 'CKTRON_L', 'Chickatron Layers'
-    CHICKATRONBREEDERS= 'CKTRON_B', 'Chickatron Breeders'
-    CHICKATRON13	 = 'CKTRON13', 'Chickatron 13'
-    PIGATRON13		 = 'PIG13', 'Pigatron 13'
-    T1200P		 	 = 'T1200+', 'Temp1200 Plus'
-    RTRON 			 = 'T2004-PK', 'R-Tron'
-    RTRON207		 = 'RTROn207', 'R-Tron 207'
-    RTRON313		 = 'RTROn313', 'R-Tron 313'
-    RTRON612		 = 'RTRON612', 'R-Tron 612'
-    RTRON612P		 = 'RT612P', 'R-Tron 612 Pig'
-    RTRON620		 = 'RTRON620', 'R-Tron 620'
-    PTRON620P		 = 'RT620P', 'R-Tron 620 Pig'
-    TP54S 			 = 'TP54S', 'TP54S'
-    TP80 			 = 'TP80', 'TP80'
-    TP82 			 = 'TP82', 'TP82'
-    PUNO207 		 = 'PUNOS207', 'Punos 207'
-    PUNO515 		 = 'PUNOS515', 'Punos 515'
-    SILONICX         = 'SILO-X', 'Silonic X'
-    SILONICXI        = 'SILO-XI', 'Silonic XI'
-    OTHER            = 'OTHER', 'Other'
-
-class Type(models.TextChoices):
-    SMARTLINK 	 = 'SMART_LINK', 'SmartLink'
-    TEMPVIEW     = 'TEMP_VIEW', 'TempView'
-    SILONICXI    = 'SILONIC', 'Silonic XI'
-    EGGAI        = 'EGGAI1', 'Egg-Ai1'
+	CHICKATRON20 	 = 'CKTRON20', 'Chickatron 20'
+	CHICKATRONLAYERS = 'CKLAYERS', 'Chickatron Layers'
+	CHICKATRON13	 = 'CKTRON13', 'Chickatron 13'
+	PIGATRON13		 = 'PIG13', 'Pigatron 13'
+	T1200P		 	 = 'T1200+', 'Temp1200 Plus'
+	RTRON 			 = 'T2004-PK', 'R-Tron'
+	RTRON207		 = 'RTROn207', 'R-Tron 207'
+	RTRON313		 = 'RTROn313', 'R-Tron 313'
+	RTRON612		 = 'RTRON612', 'R-Tron 612'
+	RTRON612P		 = 'RT612P', 'R-Tron 612 Pig'
+	RTRON620		 = 'RTRON620', 'R-Tron 620'
+	PTRON620P		 = 'RT620P', 'R-Tron 620 Pig'
+	TP54S 			 = 'TP54S', 'TP54S'
+	TP80 			 = 'TP80', 'TP80'
+	PUNO207 		 = 'PUNOS207', 'Punos 207'
+	PUNO515 		 = 'PUNOS515', 'Punos 515'
+	SILONIC_XI       = 'SILO-XI', 'SILONIC-XI'
+	EGG_C12          = 'EGG-C12', 'EGG-C12'
+	OTHER            = 'OTHER', 'OTHER'
 
 
+class RefreshToken(models.Model):
+    jti = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='refresh_tokens')
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    revoked = models.BooleanField(default=False)
+
+    def is_valid(self):
+        return not self.revoked and self.expires_at > timezone.now()
 
 def generate_key():
-    chars = string.ascii_uppercase + string.digits
-    return "-".join(
-        "".join(secrets.choice(chars) for _ in range(4))
-        for _ in range(3)
-    )
+    chars = string.ascii_letters + string.digits
+    while True:
+        key = "".join(secrets.choice(chars) for _ in range(20))
+        if not AccessKey.objects.filter(key=key).exists():
+            return key
 def key_expire():
-    return timezone.now() + timedelta(minutes=2)
+    return timezone.now() + timedelta(days=1)
 
 class AccessKey(models.Model):
     user = models.CharField("User", max_length=50, blank=True, null=True)
     sale = models.CharField("Sale", max_length=50, blank=True, null=True)
-    key = models.CharField("AccessKey", max_length=14, unique=True, default=generate_key)
+    key = models.CharField("AccessKey", max_length=20, unique=True, default=generate_key)
     is_used = models.BooleanField(default=False)
     created_at = models.DateTimeField("Create Date", auto_now_add=True)
     used_at = models.DateTimeField("Used Date", blank=True, null=True)
@@ -315,7 +316,6 @@ class ProfileFarm(models.Model):
     TIMEZONE_CHOICES = zip(pytz.all_timezones, pytz.all_timezones)
     nameFarm 	= models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, null=True, blank=True)
     numbOfHouse = models.CharField("Number of House/จำนวนโรงเรือน", max_length=10, default='1')
-    modelTemp   = models.CharField("รุ่นเครื่อง", max_length=20, choices=ModelControllerChoices.choices, default=ModelControllerChoices.CHICKATRON20)
     ip_address  = models.CharField("หมายเลข IP Controller", max_length=100, default='159.65.6.83:8001')
     ip_manage   = models.CharField("หมายเลข IP Management", max_length=100, default='152.42.174.114:8000')
     companyName = models.CharField("Company Name/ชื่อฟาร์ม", max_length=100, null=True, blank=True)
@@ -334,13 +334,15 @@ class ProfileFarm(models.Model):
     note        = models.CharField("Note/หมายเหตุ", max_length=500, null=True, blank=True)
 
     def __str__(self):
-        return f'{self.nameFarm} | {self.modelTemp}'
+        return f'{self.nameFarm}'
 
 
 class ProfileUser(models.Model):
     username        = models.OneToOneField(User, on_delete=models.CASCADE)
     first_name      = models.CharField(max_length=50, null=True, blank=True)
     last_name       = models.CharField(max_length=50, null=True, blank=True)
+    country	        = models.CharField("Country/ประเทศ", max_length=50, choices=ModelCountryChoices.choices, default=ModelCountryChoices.TH)
+    mobile 		    = models.CharField("Phone/เบอร์โทรศัพท์", max_length=50, null=True, blank=True)
     token           = models.UUIDField("Access Token", max_length=100, default=uuid.uuid1)
     date_created    = models.DateTimeField(auto_now_add=True)
 
@@ -353,6 +355,7 @@ class ProfileUser(models.Model):
     class Meta:
         ordering = ['-date_created']
         db_table = 'ProfileUser'
+
     def __str__(self):
         return self.username.username
 
@@ -371,7 +374,31 @@ class ProfileUserApp(models.Model):
         return f'{self.nameFarm}'
 
 class ProfileDevice(models.Model):
-    type            = models.CharField("รุ่นเครื่อง", max_length=20, choices=Type.choices, default=Type.SMARTLINK)
+    SMARTLINK       = 'SmartLink'
+    TEMPVIEW        = 'TempView'
+    FARMNET         = 'FarmNet'
+    TYPE_CHOICES    = [(SMARTLINK, 'SmartLink'),(TEMPVIEW, 'TempView'),(FARMNET, 'FarmNet')]
+    type            = models.CharField("รุ่นเครื่อง", max_length=20, choices=TYPE_CHOICES, default=SMARTLINK)
+    modelTemp       = models.CharField("รุ่นเครื่อง", max_length=20, choices=ModelControllerChoices.choices, default=ModelControllerChoices.CHICKATRON20)
+    nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
+    house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
+    controllerSN    = models.CharField('รหัสคอนโทรลเลอร์', max_length=50, blank=True, null=True)
+    smartlinkSN     = models.CharField('รหัสสมาร์ทลิงค์', max_length=50, blank=True, null=True)
+
+    def __str__(self):
+        return f'{self.nameFarm}'
+
+
+class ProfileSilonic(models.Model):
+    nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
+    house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
+    serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
+
+    def __str__(self):
+            return f'{self.nameFarm}'
+
+
+class ProfileEggAi(models.Model):
     nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
     house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
     serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)

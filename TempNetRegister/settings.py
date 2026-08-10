@@ -60,9 +60,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware', 
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -155,14 +155,29 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# CORS_ALLOWED_ORIGINS = [
-#     "http://192.168.1.138:5173",
-#     "http://localhost:8081"
-# ]
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:8081"
+]
 
-CORS_ORIGIN_ALLOW_ALL = True
+CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+]
+
+CORS_ORIGIN_ALLOW_ALL = False
 # CORS_ORIGIN_WHITELIST = (
 # )
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "app.authentication.JWTAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.AllowAny",
+    ],
+}
 
 # Email Configuration
 DEFAULT_FROM_EMAIL = "TempNet RegisterApp <temp.app@waterflame.co.th>"

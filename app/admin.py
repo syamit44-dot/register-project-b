@@ -23,23 +23,34 @@ class ProfileDeviceInline(admin.TabularInline):
     extra = 0
     autocomplete_fields = ['nameFarm']
 
+class ProfileSilonicInline(admin.TabularInline):
+    model = ProfileSilonic
+    extra = 0
+    autocomplete_fields = ['nameFarm']
+
+class ProfileEggAiInline(admin.TabularInline):
+    model = ProfileEggAi
+    extra = 0
+    autocomplete_fields = ['nameFarm']
+
 class ProfileUserAppInline(admin.TabularInline):
     model = ProfileUserApp
     extra = 0
     autocomplete_fields = ['nameFarm']
 
 class ProfileFarmMenu(admin.ModelAdmin):
-    list_display = ('nameFarm', 'modelTemp', 'numbOfHouse', 'ip_address')
-    search_fields = ['nameFarm', 'modelTemp', 'numbOfHouse', 'ip_address']
+    list_display = ('nameFarm', 'numbOfHouse', 'ip_address')
+    search_fields = ['nameFarm', 'numbOfHouse', 'ip_address']
 
     def number_Of_House(self, obj):
         _numberOfHouse = ProfileDevice.objects.filter(nameFarm=obj.id).count()
+        _numberOfHouse = ProfileSilonic.objects.filter(nameFarm=obj.id).count()
+        _numberOfHouse = ProfileEggAi.objects.filter(nameFarm=obj.id).count()
         _numberOfHouse += ProfileUserApp.objects.filter(nameFarm=obj.id).count()
         return _numberOfHouse
 
-    inlines = [ProfileDeviceInline, ProfileUserAppInline]
+    inlines = [ProfileDeviceInline, ProfileSilonicInline, ProfileEggAiInline, ProfileUserAppInline]
 admin.site.register(ProfileFarm, ProfileFarmMenu)
-
 
 class ProfileUserAdmin(admin.ModelAdmin):
     list_display = ('username', 'first_name', 'last_name', 'token')
@@ -47,6 +58,16 @@ class ProfileUserAdmin(admin.ModelAdmin):
 admin.site.register(ProfileUser, ProfileUserAdmin)
 
 class ProfileDeviceAdmin(admin.ModelAdmin):
+    list_display = ('nameFarm', 'modelTemp', 'house', 'controllerSN', 'smartlinkSN')
+    search_fields = ['nameFarm', 'modelTemp', 'house', 'controllerSN', 'smartlinkSN']
+admin.site.register(ProfileDevice, ProfileDeviceAdmin)
+
+class ProfileSilonicAdmin(admin.ModelAdmin):
     list_display = ('nameFarm', 'house', 'serialNumber')
     search_fields = ['nameFarm', 'house', 'serialNumber']
-admin.site.register(ProfileDevice, ProfileDeviceAdmin)
+admin.site.register(ProfileSilonic, ProfileSilonicAdmin)
+
+class ProfileEggAiAdmin(admin.ModelAdmin):
+    list_display = ('nameFarm', 'house')
+    search_fields = ['nameFarm', 'house']
+admin.site.register(ProfileEggAi, ProfileEggAiAdmin)
