@@ -10,24 +10,24 @@ class ProfileFarmSerializer(serializers.ModelSerializer):
 class ProfileDeviceSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProfileDevice
-        fields = '__all__'
+        exclude = ['nameFarm']
 
 class ProfileSilonicSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProfileSilonic
-        fields = '__all__'
+        exclude = ['nameFarm']
 
 class ProfileEggAiSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProfileEggAi
-        fields = '__all__'
+        exclude = ['nameFarm']
 
 class ProfileUserAppSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProfileUserApp
-        fields = '__all__'
+        exclude = ['nameFarm']
 
 class ProfileUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProfileUser
-        fields = '__all__'
+        exclude = ['nameFarm']

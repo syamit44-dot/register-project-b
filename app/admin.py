@@ -39,7 +39,7 @@ class ProfileUserAppInline(admin.TabularInline):
     autocomplete_fields = ['nameFarm']
 
 class ProfileFarmMenu(admin.ModelAdmin):
-    list_display = ('nameFarm', 'numbOfHouse', 'ip_address')
+    list_display = ('nameFarm', 'numbOfHouse', 'ip_address', 'date_created')
     search_fields = ['nameFarm', 'numbOfHouse', 'ip_address']
 
     def number_Of_House(self, obj):

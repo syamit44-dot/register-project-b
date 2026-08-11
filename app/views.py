@@ -279,39 +279,59 @@ def Api_NewFarm(request, cmd):
 				with transaction.atomic():
 					body = request.data
 
+					if not isinstance(body, dict):
+						return Response({"message": "error", "detail": "รูปแบบข้อมูลต้องเป็น object ({}) เท่านั้น ไม่รองรับ list ([])"}, status=status.HTTP_400_BAD_REQUEST)
+
 					farm_data = body.get("farm", {})
 					devices = body.get("device", [])
 					silonics = body.get("silonic", [])
 					eggs = body.get("egg", [])
 					users = body.get("userapp", [])
 
-					farm_data = farm_data.copy()
-					farm_data.pop("id", None)
-
 					name_farm = farm_data.get("nameFarm")
 					if not name_farm:
-						return Response(
-							{"message": "error", "detail": "กรุณาระบุชื่อฟาร์ม (nameFarm)"},
-							status=status.HTTP_400_BAD_REQUEST
-						)
+						return Response({"message": "error", "detail": "กรุณาระบุชื่อฟาร์ม (nameFarm)"}, status=status.HTTP_400_BAD_REQUEST)
 
 					if ProfileFarm.objects.filter(nameFarm=name_farm).exists():
-						return Response(
-							{"message": "error", "detail": f"ชื่อฟาร์ม '{name_farm}' นี้มีอยู่แล้ว"},
-							status=status.HTTP_400_BAD_REQUEST
-						)
+						return Response({"message": "error", "detail": f"ชื่อฟาร์ม '{name_farm}' นี้มีอยู่แล้ว"}, status=status.HTTP_400_BAD_REQUEST)
 
 					farm_data["token"] = str(user.token)
 
 					farm_serializer = ProfileFarmSerializer(data=farm_data)
 					farm_serializer.is_valid(raise_exception=True)
-					farm_obj = farm_serializer.save()
+					farm_obj = farm_serializer.save(token=str(user.token))
 
-					devices_update = []
-					silonic_update = []
-					egg_update = []
+					devices_create = []
+					silonics_create = []
+					eggs_create = []
+					users_create = []
+
+					seen_controller_sn = set()
+					seen_smartlink_sn = set()
+					seen_silonic_sn = set()
+					seen_egg_sn = set()
+					seen_usernames = set()
 
 					for device in devices:
+						controller_sn = device.get("controllerSN")
+						smartlink_sn = device.get("smartlinkSN")
+
+						if controller_sn:
+							if controller_sn in seen_controller_sn:
+								return Response({"message": "error", "detail": f"controllerSN '{controller_sn}' ซ้ำกันในข้อมูลที่ส่งมา"}, status=status.HTTP_400_BAD_REQUEST)
+							seen_controller_sn.add(controller_sn)
+
+							if ProfileDevice.objects.filter(controllerSN=controller_sn).exists():
+								return Response({"message": "error", "detail": f"controllerSN '{controller_sn}' นี้มีอยู่แล้ว"}, status=status.HTTP_400_BAD_REQUEST)
+
+						if smartlink_sn:
+							if smartlink_sn in seen_smartlink_sn:
+								return Response({"message": "error", "detail": f"smartlinkSN '{smartlink_sn}' ซ้ำกันในข้อมูลที่ส่งมา"}, status=status.HTTP_400_BAD_REQUEST)
+							seen_smartlink_sn.add(smartlink_sn)
+	
+							if ProfileDevice.objects.filter(smartlinkSN=smartlink_sn).exists():
+								return Response({"message": "error", "detail": f"smartlinkSN '{smartlink_sn}' นี้มีอยู่แล้ว"}, status=status.HTTP_400_BAD_REQUEST)
+		
 						new = ProfileDevice(
 							nameFarm=farm_obj,
 							type=device.get("type"),
@@ -320,54 +340,84 @@ def Api_NewFarm(request, cmd):
 							controllerSN=device.get("controllerSN"),
 							smartlinkSN=device.get("smartlinkSN"),
 						)
-						devices_update.append(new)
+						devices_create.append(new)
 
 					for silonic in silonics:
+						serial_number = silonic.get("serialNumber")
+
+						if serial_number:
+							if serial_number in seen_silonic_sn:
+								return Response({"message": "error", "detail": f"serialNumber '{serial_number}' ซ้ำกันในข้อมูลที่ส่งมา (silonic)"}, status=status.HTTP_400_BAD_REQUEST)
+							seen_silonic_sn.add(serial_number)
+
+							if ProfileSilonic.objects.filter(serialNumber=serial_number).exists():
+								return Response({"message": "error", "detail": f"serialNumber '{serial_number}' นี้มีอยู่แล้ว (silonic)"},status=status.HTTP_400_BAD_REQUEST)
+
 						new = ProfileSilonic(
 							nameFarm=farm_obj,
 							house=silonic.get("house", "1"),
 							serialNumber=silonic.get("serialNumber"),
 						)
-						silonic_update.append(new)
+						silonics_create.append(new)
 
 					for egg in eggs:
-						egg = egg.copy()
-						egg.pop("id", None)
-						egg["nameFarm"] = farm_obj.id
-						egg_serializer = ProfileEggAiSerializer(data=egg)
-						egg_serializer.is_valid(raise_exception=True)
-						egg_serializer.save()
+						serial_number = egg.get("serialNumber")
+
+						if serial_number:
+							if serial_number in seen_egg_sn:
+								return Response({"message": "error", "detail": f"serialNumber '{serial_number}' ซ้ำกันในข้อมูลที่ส่งมา (egg)"}, status=status.HTTP_400_BAD_REQUEST)
+							seen_egg_sn.add(serial_number)
+
+							if ProfileEggAi.objects.filter(serialNumber=serial_number).exists():
+								return Response({"message": "error", "detail": f"serialNumber '{serial_number}' นี้มีอยู่แล้ว (egg)"},status=status.HTTP_400_BAD_REQUEST)
+						
+						new = ProfileEggAi(
+							nameFarm=farm_obj,
+							house=egg.get("house", "1"),
+							serialNumber=egg.get("serialNumber"),
+						)
+						eggs_create.append(new)
 
 					for u in users:
-						u = u.copy()
-						u.pop("id", None)
-						u["nameFarm"] = farm_obj.id
-						user_serializer = ProfileUserAppSerializer(data=u)
-						user_serializer.is_valid(raise_exception=True)
-						user_serializer.save()
+						username = u.get("username")
 
-					return Response(
-						{"message": "ok", "farm_id": farm_obj.id},
-						status=status.HTTP_201_CREATED
-					)	
+						if username:
+							if username in seen_usernames:
+								return Response(
+								{"message": "error", "detail": f"username '{username}' ซ้ำกันในข้อมูลที่ส่งมา"}, status=status.HTTP_400_BAD_REQUEST)
+							seen_usernames.add(username)
+
+							if ProfileUserApp.objects.filter(username=username).exists():
+								return Response({"message": "error", "detail": f"username '{username}' นี้มีอยู่แล้ว"}, status=status.HTTP_400_BAD_REQUEST)
+
+						new = ProfileUserApp(
+							nameFarm=farm_obj,
+							username=u.get("username"),
+							userType=u.get("userType"),
+							userEmail=u.get("userEmail"),
+						)
+						users_create.append(new)
+
+					if devices_create:
+						ProfileDevice.objects.bulk_create(devices_create)
+
+					if silonics_create:
+						ProfileSilonic.objects.bulk_create(silonics_create)
+
+					if eggs_create:
+						ProfileEggAi.objects.bulk_create(eggs_create)
+
+					if users_create:
+						ProfileUserApp.objects.bulk_create(users_create)
+
+					return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_201_CREATED)	
 
 			except serializers.ValidationError as e:
-				return Response(
-					{"message": "error", "detail": e.detail},
-					status=status.HTTP_400_BAD_REQUEST
-				)
-			except Exception as e:
-				return Response(
-					{"message": "error", "detail": str(e)},
-					status=status.HTTP_400_BAD_REQUEST
-				)
+				return Response({"message": "error", "detail": e.detail}, status=status.HTTP_400_BAD_REQUEST)
+			
+			except Exception as e: 
+				return Response({"message": "error", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-		return Response(
-			{"message": "error", "detail": f"ไม่รู้จักคำสั่ง cmd='{cmd}'"},
-			status=status.HTTP_400_BAD_REQUEST
-		)
+		return Response({"message": "error", "detail": f"ไม่รู้จักคำสั่ง cmd='{cmd}'"}, status=status.HTTP_400_BAD_REQUEST)
 
-	return Response(
-		{"message": "error", "detail": "Method not allowed for this cmd"},
-		status=status.HTTP_405_METHOD_NOT_ALLOWED
-	)
+	return Response({"message": "error", "detail": "Method not allowed for this cmd"}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
