@@ -13,6 +13,27 @@ def new_generate_token(modeladmin, request, queryset):
 def generate_farm_id(modeladmin, request, queryset):
     queryset.update(farmId=uuid.uuid4().hex)
 
+class ModelIpAddressInline(admin.TabularInline):
+    model = ModelIpAddress
+    extra = 1
+    autocomplete_fields = ['model']
+
+class ModelControllerAdmin(admin.ModelAdmin):
+    list_display = ('model',)
+    search_fields = ['model',]
+
+    def number_Of_House(self, obj):
+        _ipAddress = ModelIpAddress.objects.filter(model=obj.id).count()
+        return _ipAddress
+
+    inlines = [ModelIpAddressInline]
+admin.site.register(ModelController, ModelControllerAdmin)
+
+class ModelIpAddressAdmin(admin.ModelAdmin):
+    list_display = ('model', 'ipAddress')
+    search_fields = ['model', 'ipAddress']
+admin.site.register(ModelIpAddress, ModelIpAddressAdmin)
+
 class AccessKeyAdmin(admin.ModelAdmin):
     list_display = ('user', 'sale', 'key', 'is_used', 'created_at','used_at', 'expired_at')
     search_fields = ['user', 'sale', 'key', 'is_used']
@@ -23,13 +44,18 @@ class ProfileDeviceInline(admin.TabularInline):
     extra = 0
     autocomplete_fields = ['nameFarm']
 
+class ProfileAlarmInline(admin.TabularInline):
+    model = ProfileAlarm
+    extra = 0
+    autocomplete_fields = ['nameFarm']
+
 class ProfileSilonicInline(admin.TabularInline):
     model = ProfileSilonic
     extra = 0
     autocomplete_fields = ['nameFarm']
 
-class ProfileEggAiInline(admin.TabularInline):
-    model = ProfileEggAi
+class ProfileEggInline(admin.TabularInline):
+    model = ProfileEgg
     extra = 0
     autocomplete_fields = ['nameFarm']
 
@@ -44,12 +70,13 @@ class ProfileFarmMenu(admin.ModelAdmin):
 
     def number_Of_House(self, obj):
         _numberOfHouse = ProfileDevice.objects.filter(nameFarm=obj.id).count()
-        _numberOfHouse = ProfileSilonic.objects.filter(nameFarm=obj.id).count()
-        _numberOfHouse = ProfileEggAi.objects.filter(nameFarm=obj.id).count()
+        _numberOfHouse += ProfileAlarm.objects.filter(nameFarm=obj.id).count()
+        _numberOfHouse += ProfileSilonic.objects.filter(nameFarm=obj.id).count()
+        _numberOfHouse += ProfileEgg.objects.filter(nameFarm=obj.id).count()
         _numberOfHouse += ProfileUserApp.objects.filter(nameFarm=obj.id).count()
         return _numberOfHouse
 
-    inlines = [ProfileDeviceInline, ProfileSilonicInline, ProfileEggAiInline, ProfileUserAppInline]
+    inlines = [ProfileDeviceInline, ProfileAlarmInline, ProfileSilonicInline, ProfileEggInline, ProfileUserAppInline]
 admin.site.register(ProfileFarm, ProfileFarmMenu)
 
 class ProfileUserAdmin(admin.ModelAdmin):
@@ -59,15 +86,20 @@ admin.site.register(ProfileUser, ProfileUserAdmin)
 
 class ProfileDeviceAdmin(admin.ModelAdmin):
     list_display = ('nameFarm', 'modelTemp', 'house', 'controllerSN', 'smartlinkSN')
-    search_fields = ['nameFarm', 'modelTemp', 'house', 'controllerSN', 'smartlinkSN']
+    search_fields = ['nameFarm', 'modelTemp', 'controllerSN', 'smartlinkSN']
 admin.site.register(ProfileDevice, ProfileDeviceAdmin)
+
+class ProfileAlarmAdmin(admin.ModelAdmin):
+    list_display = ('nameFarm', 'house', 'serialNumber')
+    search_fields = ['nameFarm', 'serialNumber']
+admin.site.register(ProfileAlarm, ProfileAlarmAdmin)
 
 class ProfileSilonicAdmin(admin.ModelAdmin):
     list_display = ('nameFarm', 'house', 'serialNumber')
-    search_fields = ['nameFarm', 'house', 'serialNumber']
+    search_fields = ['nameFarm', 'serialNumber']
 admin.site.register(ProfileSilonic, ProfileSilonicAdmin)
 
-class ProfileEggAiAdmin(admin.ModelAdmin):
-    list_display = ('nameFarm', 'house')
-    search_fields = ['nameFarm', 'house']
-admin.site.register(ProfileEggAi, ProfileEggAiAdmin)
+class ProfileEggAdmin(admin.ModelAdmin):
+    list_display = ('nameFarm', 'house', 'serialNumber')
+    search_fields = ['nameFarm', 'serialNumber']
+admin.site.register(ProfileEgg, ProfileEggAdmin)

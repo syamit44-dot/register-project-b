@@ -276,16 +276,48 @@ class ModelControllerChoices(models.TextChoices):
 	EGG_C12          = 'EGG-C12', 'EGG-C12'
 	OTHER            = 'OTHER', 'OTHER'
 
+class ModelAlarmChoices(models.TextChoices):
+    ALARM04          = 'ALARM-04', 'Alarm-04'
+    ALARM05          = 'ALARM-05', 'Alarm-05'
+
+class ModelEggChoices(models.TextChoices):
+    EGGAI1          = 'EGG-AI1', 'Egg-Ai1'
+    EGGC12          = 'EGG-C12', 'Egg-C12'
+
+class StatusChoices(models.TextChoices):
+    PENDING          = 'PENDING', 'Pending'
+    REJECT           = 'REJECT', 'Reject'
+    APPROVE          = 'APPROVE', 'Approve'
+    EDIT             = 'EDIT', 'Edit'
+
+class TypeChoices(models.TextChoices):
+    SMARTLINK        = 'SMARTLINK', 'SmartLink'
+    TEMPVIEW         = 'TEMPVIEW', 'TempView/FarmNet'
+
+class ModelController(models.Model):
+    model           = models.CharField("Model/รุ่น", max_length=50, blank=False, null=False, unique=True)
+
+    def __str__(self):
+        return self.model
+
+class ModelIpAddress(models.Model):
+    model           = models.ForeignKey(ModelController, on_delete=models.CASCADE, verbose_name='Model/รุ่น')
+    ipAddress       = models.CharField("หมายเลข IP Controller", max_length=100)
+
+    def __str__(self):
+        return self.ipAddress
+
 
 class RefreshToken(models.Model):
-    jti = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='refresh_tokens')
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField()
-    revoked = models.BooleanField(default=False)
+    jti             = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    user            = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='refresh_tokens')
+    created_at      = models.DateTimeField(auto_now_add=True)
+    expires_at      = models.DateTimeField()
+    revoked         = models.BooleanField(default=False)
 
     def is_valid(self):
         return not self.revoked and self.expires_at > timezone.now()
+
 
 def generate_key():
     chars = string.ascii_letters + string.digits
@@ -297,13 +329,13 @@ def key_expire():
     return timezone.now() + timedelta(days=1)
 
 class AccessKey(models.Model):
-    user = models.CharField("User", max_length=50, blank=True, null=True)
-    sale = models.CharField("Sale", max_length=50, blank=True, null=True)
-    key = models.CharField("AccessKey", max_length=20, unique=True, default=generate_key)
-    is_used = models.BooleanField(default=False)
-    created_at = models.DateTimeField("Create Date", auto_now_add=True)
-    used_at = models.DateTimeField("Used Date", blank=True, null=True)
-    expired_at = models.DateTimeField("Expire Date", default=key_expire)
+    user            = models.CharField("User", max_length=50, blank=True, null=True)
+    sale            = models.CharField("Sale", max_length=50, blank=True, null=True)
+    key             = models.CharField("AccessKey", max_length=20, unique=True, default=generate_key)
+    is_used         = models.BooleanField(default=False)
+    created_at      = models.DateTimeField("Create Date", auto_now_add=True)
+    used_at         = models.DateTimeField("Used Date", blank=True, null=True)
+    expired_at      = models.DateTimeField("Expire Date", default=key_expire)
 
     class Meta:
         db_table = "access_keys"
@@ -314,24 +346,29 @@ class AccessKey(models.Model):
 
 class ProfileFarm(models.Model):
     TIMEZONE_CHOICES = zip(pytz.all_timezones, pytz.all_timezones)
-    nameFarm 	= models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, null=True, blank=True)
-    numbOfHouse = models.CharField("Number of House/จำนวนโรงเรือน", max_length=10, default='1')
-    ip_address  = models.CharField("หมายเลข IP Controller", max_length=100, default='159.65.6.83:8001')
-    ip_manage   = models.CharField("หมายเลข IP Management", max_length=100, default='152.42.174.114:8000')
-    companyName = models.CharField("Company Name/ชื่อฟาร์ม", max_length=100, null=True, blank=True)
-    address1    = models.CharField("Address Line1/ที่อยู่1", max_length=100, null=True, blank=True)
-    address2    = models.CharField("Address Line2/ที่อยู่2", max_length=100, null=True, blank=True)
-    townCity    = models.CharField("Town/City/อำเภอ/เขต", max_length=50, null=True, blank=True)
-    province    = models.CharField("Province/จังหวัด", max_length=50, null=True, blank=True)
-    country	    = models.CharField("Country/ประเทศ", max_length=50, choices=ModelCountryChoices.choices, default=ModelCountryChoices.TH)
-    postcode    = models.CharField("Postcode/รหัสไปรษณีย์", max_length=50, null=True, blank=True)
-    contact		= models.CharField("Contact Person/ผู้ติดต่อ", max_length=50, null=True, blank=True)
-    mobile 		= models.CharField("Phone/เบอร์โทรศัพท์", max_length=50, null=True, blank=True)
-    emailFarm   = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
-    timezone    = models.CharField("Time Zone", max_length=50, choices=TIMEZONE_CHOICES, default='Asia/Bangkok')
-    date_created = models.DateTimeField(auto_now_add=True)
-    token       = models.CharField("Access Token", max_length=50, null=True, blank=True)
-    note        = models.CharField("Note/หมายเหตุ", max_length=500, null=True, blank=True)
+    status          = models.CharField("Status/สถานะ", max_length=50, choices=StatusChoices.choices, default=StatusChoices.PENDING)
+    nameFarm 	    = models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, null=True, blank=True)
+    numbOfHouse     = models.CharField("Number of House/จำนวนโรงเรือน", max_length=10, default='1')
+    ip_address      = models.CharField("หมายเลข IP Controller", max_length=100, default='159.65.6.83:8001')
+    ip_manage       = models.CharField("หมายเลข IP Management", max_length=100, default='152.42.174.114:8000')
+    companyName     = models.CharField("Company Name/ชื่อฟาร์ม", max_length=100, null=True, blank=True)
+    address1        = models.CharField("Address Line1/ที่อยู่1", max_length=100, null=True, blank=True)
+    address2        = models.CharField("Address Line2/ที่อยู่2", max_length=100, null=True, blank=True)
+    townCity        = models.CharField("Town/City/อำเภอ/เขต", max_length=50, null=True, blank=True)
+    province        = models.CharField("Province/จังหวัด", max_length=50, null=True, blank=True)
+    country	        = models.CharField("Country/ประเทศ", max_length=50, choices=ModelCountryChoices.choices, default=ModelCountryChoices.TH)
+    postcode        = models.CharField("Postcode/รหัสไปรษณีย์", max_length=50, null=True, blank=True)
+    contact		    = models.CharField("Contact Person/ผู้ติดต่อ", max_length=50, null=True, blank=True)
+    mobile 		    = models.CharField("Phone/เบอร์โทรศัพท์", max_length=50, null=True, blank=True)
+    emailFarm       = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
+    saleName        = models.CharField("Sale Name/ชื่อตัวแทนจำหน่าย", max_length=50, null=True, blank=True)
+    saleContract    = models.CharField("Sale Contract/ช่องทางติดต่อตัวแทนจำหน่าย", max_length=50, null=True, blank=True)
+    poNumber        = models.CharField("PO Number/หมายเลขใบสั่งซื้อ", max_length=50, null=True, blank=True)
+    timezone        = models.CharField("Time Zone", max_length=50, choices=TIMEZONE_CHOICES, default='Asia/Bangkok')
+    date_created    = models.DateTimeField(auto_now_add=True)
+    date_edit       = models.DateTimeField("Edit time", null=True, blank=True)
+    token           = models.CharField("Access Token", max_length=50, null=True, blank=True)
+    note            = models.CharField("Note/หมายเหตุ", max_length=500, null=True, blank=True)
 
     def __str__(self):
         return f'{self.nameFarm}'
@@ -374,11 +411,7 @@ class ProfileUserApp(models.Model):
         return f'{self.nameFarm}'
 
 class ProfileDevice(models.Model):
-    SMARTLINK       = 'SmartLink'
-    TEMPVIEW        = 'TempView'
-    FARMNET         = 'FarmNet'
-    TYPE_CHOICES    = [(SMARTLINK, 'SmartLink'),(TEMPVIEW, 'TempView'),(FARMNET, 'FarmNet')]
-    type            = models.CharField("รุ่นเครื่อง", max_length=20, choices=TYPE_CHOICES, default=SMARTLINK)
+    type            = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
     modelTemp       = models.CharField("รุ่นเครื่อง", max_length=20, choices=ModelControllerChoices.choices, default=ModelControllerChoices.CHICKATRON20)
     nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
     house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
@@ -389,7 +422,16 @@ class ProfileDevice(models.Model):
         return f'{self.nameFarm}'
 
 
+class ProfileAlarm(models.Model):
+    type            = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
+    modelAlarm      = models.CharField("รุ่นเครื่อง", max_length=20, choices=ModelAlarmChoices.choices, default=ModelAlarmChoices.ALARM04)
+    nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
+    house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
+    serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
+
+
 class ProfileSilonic(models.Model):
+    type            = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
     nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
     house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
     serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
@@ -398,7 +440,9 @@ class ProfileSilonic(models.Model):
             return f'{self.nameFarm}'
 
 
-class ProfileEggAi(models.Model):
+class ProfileEgg(models.Model):
+    type            = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
+    modelEgg        = models.CharField("รุ่นเครื่อง", max_length=20, choices=ModelEggChoices.choices, default=ModelEggChoices.EGGAI1)
     nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
     house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
     serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)

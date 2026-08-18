@@ -40,5 +40,6 @@ urlpatterns = [
     url(r'^api/generate$', views.Api_AccessKey , {'cmd': None}),
     url(r'^api/refresh$', views.Api_RefreshToken , {'cmd': None}),
     url(r'^api/get-farm$', views.Api_GetFarm , {'cmd': None}),
-    url(r'^api/new-farm$', views.Api_NewFarm , {'cmd': 'create'}),
+    url(r'^api/request-new$', views.Api_RequestFarm , {'cmd': 'create'}),
+    url(r'^api/request-update$', views.Api_RequestFarm , {'cmd': 'update'}),
 ]
