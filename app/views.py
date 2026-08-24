@@ -52,7 +52,7 @@ def Api_AccessKey(request, cmd):
 	if user is None:
 		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
 
-	if not (user.is_superuser and user.is_staff):
+	if not (user.username.is_superuser and user.username.is_staff):
 		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
 
 	if not saleName:
@@ -61,6 +61,25 @@ def Api_AccessKey(request, cmd):
 	ass = AccessKey.objects.create(sale=saleName)
 	return Response({"detail": "created", "key":ass.key}, status=201)
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def CheckKey(request, cmd):
+	accessKey = request.data.get('accessKey', None)
+
+	with transaction.atomic():
+		if not accessKey:
+			return Response({"error": "No access."}, status=status.HTTP_400_BAD_REQUEST)
+
+		check = AccessKey.objects.select_for_update().filter(key=accessKey).first()
+
+		if check is None:
+			return Response({"error": "Not access"}, status=status.HTTP_401_UNAUTHORIZED)
+		if check.is_used == True:
+			return Response({"error": "Not access"}, status=status.HTTP_401_UNAUTHORIZED)
+
+	return Response({"message": "Access key is True."})
+
+	
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -70,23 +89,23 @@ def Api_SignUp(request, cmd):
 	accessKey = request.data.get('accessKey', None)
 	country = request.data.get('country', None)
 	mobile = request.data.get('mobile', None)
-	# token = request.data.get("captcha_token")
+	token = request.data.get("captcha_token")
 		
-	# if not token:
-	# 	return Response({"error": "Captcha token not found."}, status=400)
+	if not token:
+		return Response({"error": "Captcha token not found."}, status=400)
 
-	# is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
-	# if not is_valid:
-	# 	return Response({"error": error}, status=403)
+	is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
+	if not is_valid:
+		return Response({"error": error}, status=403)
 
 	if not accessKey:
 		return Response({"error": "No access."}, status=status.HTTP_400_BAD_REQUEST)
 	if not username or not password:
 		return Response({"error": "Please send username and password."}, status=status.HTTP_400_BAD_REQUEST)
-	# if not CheckEmailValidate(username):
-	# 	return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
-	# if not CheckPasswordValidate(password):
-	# 	return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
+	if not CheckEmailValidate(username):
+		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
+	if not CheckPasswordValidate(password):
+		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
 	if User.objects.filter(username=username).exists():
 		return Response({"error": "Username already exists."}, status=status.HTTP_409_CONFLICT)
 
@@ -238,25 +257,37 @@ def Api_GetFarm(request, cmd):
 	if not user:
 		return Response(data=TempNetResponseMsg.NO_USER, status=status.HTTP_404_NOT_FOUND)
 
-	dt = []
-	farmDatas = ProfileFarm.objects.filter(token=user.token)
-	for farmData in farmDatas:
-		device = ProfileDevice.objects.filter(nameFarm__nameFarm=farmData.nameFarm)
-		alarm = ProfileAlarm.objects.filter(nameFarm__nameFarm=farmData.nameFarm)
-		silonic = ProfileSilonic.objects.filter(nameFarm__nameFarm=farmData.nameFarm)
-		egg = ProfileEgg.objects.filter(nameFarm__nameFarm=farmData.nameFarm)
-		userapp = ProfileUserApp.objects.filter(nameFarm__nameFarm=farmData.nameFarm)
+	def build_farm_list(farm_queryset):
+		dt = []
+		for farmData in farm_queryset:
+			device = ProfileDevice.objects.filter(nameFarm=farmData)
+			alarm = ProfileAlarm.objects.filter(nameFarm=farmData)
+			silonic = ProfileSilonic.objects.filter(nameFarm=farmData)
+			egg = ProfileEgg.objects.filter(nameFarm=farmData)
+			userapp = ProfileUserApp.objects.filter(nameFarm=farmData)
 
-		dt.append({
-			"farm": ProfileFarmSerializer(farmData).data,
-			"device": ProfileDeviceSerializer(device, many=True).data,
-			"alarm": ProfileAlarmSerializer(alarm, many=True).data,
-			"silonic": ProfileSilonicSerializer(silonic, many=True).data,
-			"egg": ProfileEggSerializer(egg, many=True).data,
-			"userapp": ProfileUserAppSerializer(userapp, many=True).data,
-		})
+			dt.append({
+				"farm": ProfileFarmSerializer(farmData).data,
+				"device": ProfileDeviceSerializer(device, many=True).data,
+				"alarm": ProfileAlarmSerializer(alarm, many=True).data,
+				"silonic": ProfileSilonicSerializer(silonic, many=True).data,
+				"egg": ProfileEggSerializer(egg, many=True).data,
+				"userapp": ProfileUserAppSerializer(userapp, many=True).data,
+			})
+		return dt
 
-	return Response(dt)
+	if cmd == 'user':
+		farmDatas = ProfileFarm.objects.filter(token=user.token)
+		return Response(build_farm_list(farmDatas))
+
+	elif cmd == 'admin':
+		if not (user.username.is_superuser and user.username.is_staff):
+			return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
+
+		farmDatas = ProfileFarm.objects.all()
+		return Response(build_farm_list(farmDatas))
+
+	return Response({"message": "error", "detail": "Unknow cmd"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST','GET'])
@@ -301,7 +332,7 @@ def Api_RequestFarm(request, cmd):
 						return Response({"message": "error", "detail": "No farm name."}, status=status.HTTP_400_BAD_REQUEST)
 
 					if ProfileFarm.objects.filter(nameFarm=name_farm).exists():
-						return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+						return Response({"message": "error", "detail": "This data already exists in the system1."}, status=status.HTTP_400_BAD_REQUEST)
 
 					farm_data["token"] = str(user.token)
 
@@ -333,7 +364,7 @@ def Api_RequestFarm(request, cmd):
 							seen_controller_sn.add(controller_sn)
 
 							if ProfileDevice.objects.filter(controllerSN=controller_sn).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								return Response({"message": "error", "detail": "This data already exists in the system2."}, status=status.HTTP_400_BAD_REQUEST)
 
 						if smartlink_sn:
 							if smartlink_sn in seen_smartlink_sn:
@@ -341,7 +372,7 @@ def Api_RequestFarm(request, cmd):
 							seen_smartlink_sn.add(smartlink_sn)
 
 							if ProfileDevice.objects.filter(smartlinkSN=smartlink_sn).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								return Response({"message": "error", "detail": "This data already exists in the system3."}, status=status.HTTP_400_BAD_REQUEST)
 
 						new = ProfileDevice(
 							nameFarm=farm_obj,
@@ -363,7 +394,7 @@ def Api_RequestFarm(request, cmd):
 							seen_silonic_sn.add(serial_number)
 
 							if ProfileSilonic.objects.filter(serialNumber=serial_number).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								return Response({"message": "error", "detail": "This data already exists in the system4."}, status=status.HTTP_400_BAD_REQUEST)
 
 						new = ProfileSilonic(
 							nameFarm=farm_obj,
@@ -383,7 +414,7 @@ def Api_RequestFarm(request, cmd):
 							seen_egg_sn.add(serial_number)
 
 							if ProfileEgg.objects.filter(serialNumber=serial_number).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								return Response({"message": "error", "detail": "This data already exists in the system5."}, status=status.HTTP_400_BAD_REQUEST)
 
 						new = ProfileEgg(
 							nameFarm=farm_obj,
@@ -404,7 +435,7 @@ def Api_RequestFarm(request, cmd):
 							seen_alarm_sn.add(serial_number)
 
 							if ProfileAlarm.objects.filter(serialNumber=serial_number).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								return Response({"message": "error", "detail": "This data already exists in the system6."}, status=status.HTTP_400_BAD_REQUEST)
 
 						new = ProfileAlarm(
 							nameFarm=farm_obj,
@@ -425,7 +456,7 @@ def Api_RequestFarm(request, cmd):
 							seen_usernames.add(username)
 
 							if ProfileUserApp.objects.filter(username=username).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								return Response({"message": "error", "detail": "This data already exists in the system7."}, status=status.HTTP_400_BAD_REQUEST)
 
 						new = ProfileUserApp(
 							nameFarm=farm_obj,

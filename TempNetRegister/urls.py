@@ -31,6 +31,7 @@ urlpatterns = [
     # url(r'^api/v2/((?:user)|(?:auditor))?/password(?:/(?P<cmd>\w+))?/?$', views.UserPassword),
 
     # url(r'^api/register-farm$', views.RegisterFarm, {'cmd': None})
+    url(r'^api/check-key$', views.CheckKey , {'cmd': None}),
     url(r'^api/signin$', views.Api_SignIn , {'cmd': None}),
     url(r'^api/signup$', views.Api_SignUp , {'cmd': None}),
 
@@ -39,7 +40,8 @@ urlpatterns = [
 
     url(r'^api/generate$', views.Api_AccessKey , {'cmd': None}),
     url(r'^api/refresh$', views.Api_RefreshToken , {'cmd': None}),
-    url(r'^api/get-farm$', views.Api_GetFarm , {'cmd': None}),
-    url(r'^api/request-new$', views.Api_RequestFarm , {'cmd': 'create'}),
-    url(r'^api/request-update$', views.Api_RequestFarm , {'cmd': 'update'}),
+    url(r'^api/get-farm/user$', views.Api_GetFarm , {'cmd': 'user'}),
+    url(r'^api/get-farm/admin$', views.Api_GetFarm , {'cmd': 'admin'}),
+    url(r'^api/request/new$', views.Api_RequestFarm , {'cmd': 'create'}),
+    url(r'^api/request/update$', views.Api_RequestFarm , {'cmd': 'update'}),
 ]
