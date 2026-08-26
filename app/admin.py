@@ -15,19 +15,15 @@ def generate_farm_id(modeladmin, request, queryset):
 
 class ModelIpAddressInline(admin.TabularInline):
     model = ModelIpAddress
+    fk_name = "model"
     extra = 1
-    autocomplete_fields = ['model']
 
-class ModelControllerAdmin(admin.ModelAdmin):
-    list_display = ('model',)
-    search_fields = ['model',]
-
-    def number_Of_House(self, obj):
-        _ipAddress = ModelIpAddress.objects.filter(model=obj.id).count()
-        return _ipAddress
-
+class EquipmentModelAdmin(admin.ModelAdmin):
+    list_display = ('name', 'category', 'code')
+    list_filter = ('category',)
+    search_fields = ['name', 'code']
     inlines = [ModelIpAddressInline]
-admin.site.register(ModelController, ModelControllerAdmin)
+admin.site.register(EquipmentModel, EquipmentModelAdmin)
 
 class ModelIpAddressAdmin(admin.ModelAdmin):
     list_display = ('model', 'ipAddress')

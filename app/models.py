@@ -9,6 +9,7 @@ import random
 import secrets
 import string
 from django.conf import settings
+from django.core.exceptions import ValidationError
 
 class ModelCountryChoices(models.TextChoices):
     AF = 'Afghanistan', 'Afghanistan'
@@ -256,25 +257,25 @@ class ModelCountryChoices(models.TextChoices):
     ZW = 'Zimbabwe', 'Zimbabwe'
     
 class ModelControllerChoices(models.TextChoices):
-	CHICKATRON20 	 = 'CKTRON20', 'Chickatron 20'
-	CHICKATRONLAYERS = 'CKLAYERS', 'Chickatron Layers'
-	CHICKATRON13	 = 'CKTRON13', 'Chickatron 13'
-	PIGATRON13		 = 'PIG13', 'Pigatron 13'
-	T1200P		 	 = 'T1200+', 'Temp1200 Plus'
-	RTRON 			 = 'T2004-PK', 'R-Tron'
-	RTRON207		 = 'RTROn207', 'R-Tron 207'
-	RTRON313		 = 'RTROn313', 'R-Tron 313'
-	RTRON612		 = 'RTRON612', 'R-Tron 612'
-	RTRON612P		 = 'RT612P', 'R-Tron 612 Pig'
-	RTRON620		 = 'RTRON620', 'R-Tron 620'
-	PTRON620P		 = 'RT620P', 'R-Tron 620 Pig'
-	TP54S 			 = 'TP54S', 'TP54S'
-	TP80 			 = 'TP80', 'TP80'
-	PUNO207 		 = 'PUNOS207', 'Punos 207'
-	PUNO515 		 = 'PUNOS515', 'Punos 515'
-	SILONIC_XI       = 'SILO-XI', 'SILONIC-XI'
-	EGG_C12          = 'EGG-C12', 'EGG-C12'
-	OTHER            = 'OTHER', 'OTHER'
+    CHICKATRON20 	 = 'CKTRON20', 'Chickatron 20'
+    CHICKATRONLAYERS = 'CKLAYERS', 'Chickatron Layers'
+    CHICKATRON13	 = 'CKTRON13', 'Chickatron 13'
+    PIGATRON13		 = 'PIG13', 'Pigatron 13'
+    T1200P		 	 = 'T1200+', 'Temp1200 Plus'
+    RTRON 			 = 'T2004-PK', 'R-Tron'
+    RTRON207		 = 'RTROn207', 'R-Tron 207'
+    RTRON313		 = 'RTROn313', 'R-Tron 313'
+    RTRON612		 = 'RTRON612', 'R-Tron 612'
+    RTRON612P		 = 'RT612P', 'R-Tron 612 Pig'
+    RTRON620		 = 'RTRON620', 'R-Tron 620'
+    PTRON620P		 = 'RT620P', 'R-Tron 620 Pig'
+    TP54S 			 = 'TP54S', 'TP54S'
+    TP80 			 = 'TP80', 'TP80'
+    PUNO207 		 = 'PUNOS207', 'Punos 207'
+    PUNO515 		 = 'PUNOS515', 'Punos 515'
+    SILONIC_XI       = 'SILO-XI', 'SILONIC-XI'
+    EGG_C12          = 'EGG-C12', 'EGG-C12'
+    OTHER            = 'OTHER', 'OTHER'
 
 class ModelAlarmChoices(models.TextChoices):
     ALARM04          = 'ALARM-04', 'Alarm-04'
@@ -283,6 +284,10 @@ class ModelAlarmChoices(models.TextChoices):
 class ModelEggChoices(models.TextChoices):
     EGGAI1          = 'EGG-AI1', 'Egg-Ai1'
     EGGC12          = 'EGG-C12', 'Egg-C12'
+
+class ModelSilonicChoices(models.TextChoices):
+    SILOXI          = 'SILONIC-XI', 'Silonic-Xi'
+    SILOX           = 'SILONIC-X', 'Silonic-X'
 
 class StatusChoices(models.TextChoices):
     PENDING          = 'PENDING', 'Pending'
@@ -294,19 +299,42 @@ class TypeChoices(models.TextChoices):
     SMARTLINK        = 'SMARTLINK', 'SmartLink'
     TEMPVIEW         = 'TEMPVIEW', 'TempView/FarmNet'
 
-class ModelController(models.Model):
-    model           = models.CharField("Model/รุ่น", max_length=50, blank=False, null=False, unique=True)
+class EquipmentCategory(models.TextChoices):
+    CONTROLLER      = 'CONTROLLER', 'Controller'
+    ALARM           = 'ALARM', 'Alarm'
+    EGG             = 'EGG', 'Egg'
+    SILONIC         = 'SILONIC', 'Silonic'
+
+
+class EquipmentModel(models.Model):
+    category     = models.CharField("ประเภทเครื่อง", max_length=20, choices=EquipmentCategory.choices, db_index=True)
+    code         = models.CharField("รหัสรุ่น", max_length=50)
+    name         = models.CharField("ชื่อรุ่น", max_length=100)
+
+    class Meta:
+        db_table = "equipment_model"
+        constraints = [models.UniqueConstraint(fields=["category", "code"], name="uniq_equipment_category_code")]
+        ordering = ["category", "name"]
 
     def __str__(self):
-        return self.model
+        return f"[{self.get_category_display()}] {self.name}"
+
 
 class ModelIpAddress(models.Model):
-    model           = models.ForeignKey(ModelController, on_delete=models.CASCADE, verbose_name='Model/รุ่น')
-    ipAddress       = models.CharField("หมายเลข IP Controller", max_length=100)
+    model = models.ForeignKey( EquipmentModel, on_delete=models.CASCADE, verbose_name='Model/รุ่น')
+    ipAddress = models.CharField("หมายเลข IP Controller", max_length=100)
 
     def __str__(self):
         return self.ipAddress
 
+class EquipmentCategoryGuardMixin:
+    equipment_field = "equipmentModel"   # override ใน subclass ถ้าชื่อ field ต่างกัน
+    expected_category = None
+
+    def clean(self):
+        model_instance = getattr(self, self.equipment_field, None)
+        if model_instance and model_instance.category != self.expected_category:
+            raise ValidationError({self.equipment_field: f"ต้องเลือกรุ่นเครื่องประเภท {self.expected_category} เท่านั้น"})
 
 class RefreshToken(models.Model):
     jti             = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -344,36 +372,6 @@ class AccessKey(models.Model):
         return self.key
 
 
-class ProfileFarm(models.Model):
-    TIMEZONE_CHOICES = zip(pytz.all_timezones, pytz.all_timezones)
-    status          = models.CharField("Status/สถานะ", max_length=50, choices=StatusChoices.choices, default=StatusChoices.PENDING)
-    nameFarm 	    = models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, null=True, blank=True)
-    numbOfHouse     = models.CharField("Number of House/จำนวนโรงเรือน", max_length=10, default='1')
-    ip_address      = models.CharField("หมายเลข IP Controller", max_length=100, default='159.65.6.83:8001')
-    ip_manage       = models.CharField("หมายเลข IP Management", max_length=100, default='152.42.174.114:8000')
-    companyName     = models.CharField("Company Name/ชื่อฟาร์ม", max_length=100, null=True, blank=True)
-    address1        = models.CharField("Address Line1/ที่อยู่1", max_length=100, null=True, blank=True)
-    address2        = models.CharField("Address Line2/ที่อยู่2", max_length=100, null=True, blank=True)
-    townCity        = models.CharField("Town/City/อำเภอ/เขต", max_length=50, null=True, blank=True)
-    province        = models.CharField("Province/จังหวัด", max_length=50, null=True, blank=True)
-    country	        = models.CharField("Country/ประเทศ", max_length=50, choices=ModelCountryChoices.choices, default=ModelCountryChoices.TH)
-    postcode        = models.CharField("Postcode/รหัสไปรษณีย์", max_length=50, null=True, blank=True)
-    contact		    = models.CharField("Contact Person/ผู้ติดต่อ", max_length=50, null=True, blank=True)
-    mobile 		    = models.CharField("Phone/เบอร์โทรศัพท์", max_length=50, null=True, blank=True)
-    emailFarm       = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
-    saleName        = models.CharField("Sale Name/ชื่อตัวแทนจำหน่าย", max_length=50, null=True, blank=True)
-    saleContract    = models.CharField("Sale Contract/ช่องทางติดต่อตัวแทนจำหน่าย", max_length=50, null=True, blank=True)
-    poNumber        = models.CharField("PO Number/หมายเลขใบสั่งซื้อ", max_length=50, null=True, blank=True)
-    timezone        = models.CharField("Time Zone", max_length=50, choices=TIMEZONE_CHOICES, default='Asia/Bangkok')
-    date_created    = models.DateTimeField(auto_now_add=True)
-    date_edit       = models.DateTimeField("Edit time", null=True, blank=True)
-    token           = models.CharField("Access Token", max_length=50, null=True, blank=True)
-    note            = models.CharField("Note/หมายเหตุ", max_length=500, null=True, blank=True)
-
-    def __str__(self):
-        return f'{self.nameFarm}'
-
-
 class ProfileUser(models.Model):
     username        = models.OneToOneField(User, on_delete=models.CASCADE)
     first_name      = models.CharField(max_length=50, null=True, blank=True)
@@ -397,6 +395,36 @@ class ProfileUser(models.Model):
         return self.username.username
 
 
+class ProfileFarm(models.Model):
+    TIMEZONE_CHOICES = zip(pytz.all_timezones, pytz.all_timezones)
+    status          = models.CharField("Status/สถานะ", max_length=50, choices=StatusChoices.choices, default=StatusChoices.PENDING)
+    nameFarm 	    = models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, null=True, blank=True)
+    numbOfHouse     = models.CharField("Number of House/จำนวนโรงเรือน", max_length=10, default='1')
+    ip_address      = models.CharField("หมายเลข IP Controller", max_length=100, default='159.65.6.83:8001')
+    ip_manage       = models.CharField("หมายเลข IP Management", max_length=100, default='152.42.174.114:8000')
+    companyName     = models.CharField("Company Name/ชื่อฟาร์ม", max_length=100, null=True, blank=True)
+    address1        = models.CharField("Address Line1/ที่อยู่1", max_length=100, null=True, blank=True)
+    address2        = models.CharField("Address Line2/ที่อยู่2", max_length=100, null=True, blank=True)
+    townCity        = models.CharField("Town/City/อำเภอ/เขต", max_length=50, null=True, blank=True)
+    province        = models.CharField("Province/จังหวัด", max_length=50, null=True, blank=True)
+    country	        = models.CharField("Country/ประเทศ", max_length=50, choices=ModelCountryChoices.choices, default=ModelCountryChoices.TH)
+    postcode        = models.CharField("Postcode/รหัสไปรษณีย์", max_length=50, null=True, blank=True)
+    contact         = models.CharField("Contact Person/ผู้ติดต่อ", max_length=50, null=True, blank=True)
+    mobile          = models.CharField("Phone/เบอร์โทรศัพท์", max_length=50, null=True, blank=True)
+    emailFarm       = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
+    saleName        = models.CharField("Sale Name/ชื่อตัวแทนจำหน่าย", max_length=50, null=True, blank=True)
+    saleContract    = models.CharField("Sale Contract/ช่องทางติดต่อตัวแทนจำหน่าย", max_length=50, null=True, blank=True)
+    poNumber        = models.CharField("PO Number/หมายเลขใบสั่งซื้อ", max_length=50, null=True, blank=True)
+    timezone        = models.CharField("Time Zone", max_length=50, choices=TIMEZONE_CHOICES, default='Asia/Bangkok')
+    date_created    = models.DateTimeField(auto_now_add=True)
+    date_edit       = models.DateTimeField("Edit time", null=True, blank=True)
+    user            = models.ForeignKey(ProfileUser, on_delete=models.CASCADE, related_name="farms", verbose_name="เจ้าของฟาร์ม")
+    note            = models.CharField("Note/หมายเหตุ", max_length=500, null=True, blank=True)
+
+    def __str__(self):
+        return f'{self.nameFarm}'
+
+
 class ProfileUserApp(models.Model):
     USER            = 'User'
     SUPERUSER       = 'Superuser'
@@ -410,42 +438,61 @@ class ProfileUserApp(models.Model):
     def __str__(self):
         return f'{self.nameFarm}'
 
-class ProfileDevice(models.Model):
-    type            = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
-    modelTemp       = models.CharField("รุ่นเครื่อง", max_length=20, choices=ModelControllerChoices.choices, default=ModelControllerChoices.CHICKATRON20)
-    nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
-    house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
-    controllerSN    = models.CharField('รหัสคอนโทรลเลอร์', max_length=50, blank=True, null=True)
-    smartlinkSN     = models.CharField('รหัสสมาร์ทลิงค์', max_length=50, blank=True, null=True)
+class ProfileDevice(EquipmentCategoryGuardMixin, models.Model):
+    equipment_field   = "modelTemp"
+    expected_category = EquipmentCategory.CONTROLLER
+
+    type          = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
+    modelTemp     = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="devices",limit_choices_to={"category": EquipmentCategory.CONTROLLER},verbose_name='รุ่นเครื่อง')
+    nameFarm      = models.ForeignKey('ProfileFarm', on_delete=models.CASCADE, related_name="devices", verbose_name='ชื่อฟาร์มแบบย่อ')
+    house         = models.CharField('หมายเลขโรงเรือน', max_length=10, blank=False, default='1')
+    controllerSN  = models.CharField('รหัสคอนโทรลเลอร์', max_length=50, blank=True, null=True)
+    smartlinkSN   = models.CharField('รหัสสมาร์ทลิงค์', max_length=50, blank=True, null=True)
+
+    class Meta:
+        ordering = ["modelTemp__name"]
 
     def __str__(self):
         return f'{self.nameFarm}'
 
 
-class ProfileAlarm(models.Model):
-    type            = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
-    modelAlarm      = models.CharField("รุ่นเครื่อง", max_length=20, choices=ModelAlarmChoices.choices, default=ModelAlarmChoices.ALARM04)
-    nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
-    house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
-    serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
+class ProfileAlarm(EquipmentCategoryGuardMixin, models.Model):
+    equipment_field   = "modelAlarm"
+    expected_category = EquipmentCategory.ALARM
 
-
-class ProfileSilonic(models.Model):
-    type            = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
-    nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
-    house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
-    serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
+    type          = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
+    modelAlarm    = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="alarms", limit_choices_to={"category": EquipmentCategory.ALARM}, verbose_name='รุ่นเครื่อง')
+    nameFarm      = models.ForeignKey('ProfileFarm', on_delete=models.CASCADE, related_name="alarms", verbose_name='ชื่อฟาร์มแบบย่อ')
+    house         = models.CharField('หมายเลขโรงเรือน', max_length=10, blank=False, default='1')
+    serialNumber  = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
 
     def __str__(self):
-            return f'{self.nameFarm}'
+        return f'{self.nameFarm}'
 
 
-class ProfileEgg(models.Model):
-    type            = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
-    modelEgg        = models.CharField("รุ่นเครื่อง", max_length=20, choices=ModelEggChoices.choices, default=ModelEggChoices.EGGAI1)
-    nameFarm		= models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
-    house           = models.CharField('หมายเลขโรงเรื่อง', max_length=10, blank=False, default='1')
-    serialNumber    = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
+class ProfileEgg(EquipmentCategoryGuardMixin, models.Model):
+    equipment_field   = "modelEgg"
+    expected_category = EquipmentCategory.EGG
+
+    type          = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
+    modelEgg      = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="eggs", limit_choices_to={"category": EquipmentCategory.EGG}, verbose_name='รุ่นเครื่อง')
+    nameFarm      = models.ForeignKey('ProfileFarm', on_delete=models.CASCADE, related_name="eggs", verbose_name='ชื่อฟาร์มแบบย่อ')
+    house         = models.CharField('หมายเลขโรงเรือน', max_length=10, blank=False, default='1')
+    serialNumber  = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
+
+    def __str__(self):
+        return f'{self.nameFarm}'
+
+
+class ProfileSilonic(EquipmentCategoryGuardMixin, models.Model):
+    equipment_field   = "modelSilonic"
+    expected_category = EquipmentCategory.SILONIC
+
+    type          = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
+    modelSilonic  = models.ForeignKey( EquipmentModel, on_delete=models.PROTECT, related_name="silonics", limit_choices_to={"category": EquipmentCategory.SILONIC}, verbose_name='รุ่นเครื่อง')
+    nameFarm      = models.ForeignKey('ProfileFarm', on_delete=models.CASCADE, related_name="silonics", verbose_name='ชื่อฟาร์มแบบย่อ')
+    house         = models.CharField('หมายเลขโรงเรือน', max_length=10, blank=False, default='1')
+    serialNumber  = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
 
     def __str__(self):
         return f'{self.nameFarm}'

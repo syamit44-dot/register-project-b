@@ -13,9 +13,11 @@ from .utilities import *
 from .serializers import *
 from .authentication import JWTAuthentication
 import datetime 
+import logging
+
 # from django.core.mail import EmailMessage
 # from app.email_utils import threaded_send_to_email
-
+logger = logging.getLogger(__name__)
 
 class TempNetResponseMsg:
 	NO_TOKEN		 	 = {'status': 'Not Found', 'message': 'No Token'}
@@ -52,7 +54,7 @@ def Api_AccessKey(request, cmd):
 	if user is None:
 		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
 
-	if not (user.username.is_superuser and user.username.is_staff):
+	if not (user.is_superuser and user.is_staff):
 		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
 
 	if not saleName:
@@ -91,21 +93,21 @@ def Api_SignUp(request, cmd):
 	mobile = request.data.get('mobile', None)
 	token = request.data.get("captcha_token")
 		
-	if not token:
-		return Response({"error": "Captcha token not found."}, status=400)
+	# if not token:
+	# 	return Response({"error": "Captcha token not found."}, status=400)
 
-	is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
-	if not is_valid:
-		return Response({"error": error}, status=403)
+	# is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
+	# if not is_valid:
+	# 	return Response({"error": error}, status=403)
 
 	if not accessKey:
 		return Response({"error": "No access."}, status=status.HTTP_400_BAD_REQUEST)
 	if not username or not password:
 		return Response({"error": "Please send username and password."}, status=status.HTTP_400_BAD_REQUEST)
-	if not CheckEmailValidate(username):
-		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
-	if not CheckPasswordValidate(password):
-		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
+	# if not CheckEmailValidate(username):
+	# 	return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
+	# if not CheckPasswordValidate(password):
+	# 	return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
 	if User.objects.filter(username=username).exists():
 		return Response({"error": "Username already exists."}, status=status.HTTP_409_CONFLICT)
 
@@ -186,7 +188,7 @@ def Api_SignIn(request, cmd):
 		'last_name': user.last_name,		
 		'access_token': access_token,
 		# 'models': list(models_qs),
-    	# 'ip_addresses': list(ip_qs),
+		# 'ip_addresses': list(ip_qs),
 	}, status=status.HTTP_200_OK)
 
 	response.set_cookie(
@@ -257,38 +259,49 @@ def Api_GetFarm(request, cmd):
 	if not user:
 		return Response(data=TempNetResponseMsg.NO_USER, status=status.HTTP_404_NOT_FOUND)
 
-	def build_farm_list(farm_queryset):
-		dt = []
-		for farmData in farm_queryset:
-			device = ProfileDevice.objects.filter(nameFarm=farmData)
-			alarm = ProfileAlarm.objects.filter(nameFarm=farmData)
-			silonic = ProfileSilonic.objects.filter(nameFarm=farmData)
-			egg = ProfileEgg.objects.filter(nameFarm=farmData)
-			userapp = ProfileUserApp.objects.filter(nameFarm=farmData)
+	if cmd == "user":
+		farm_queryset = (
+			ProfileFarm.objects.filter(user=user).prefetch_related(
+				"devices",
+				"alarms",
+				"silonics",
+				"eggs",
+				"userapps",
+			))
 
-			dt.append({
-				"farm": ProfileFarmSerializer(farmData).data,
-				"device": ProfileDeviceSerializer(device, many=True).data,
-				"alarm": ProfileAlarmSerializer(alarm, many=True).data,
-				"silonic": ProfileSilonicSerializer(silonic, many=True).data,
-				"egg": ProfileEggSerializer(egg, many=True).data,
-				"userapp": ProfileUserAppSerializer(userapp, many=True).data,
-			})
-		return dt
+	elif cmd == "admin":
 
-	if cmd == 'user':
-		farmDatas = ProfileFarm.objects.filter(token=user.token)
-		return Response(build_farm_list(farmDatas))
-
-	elif cmd == 'admin':
 		if not (user.username.is_superuser and user.username.is_staff):
-			return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
+			return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN,)
 
-		farmDatas = ProfileFarm.objects.all()
-		return Response(build_farm_list(farmDatas))
+		farm_queryset = (ProfileFarm.objects.select_related("user").prefetch_related(
+				"devices",
+				"alarms",
+				"silonics",
+				"eggs",
+				"userapps",
+			))
 
-	return Response({"message": "error", "detail": "Unknow cmd"}, status=status.HTTP_400_BAD_REQUEST)
+	data = []
+	if farm_queryset:
+		for farm in farm_queryset:
+			data.append({
+				"farm": ProfileFarmSerializer(farm).data,
+				"device": ProfileDeviceSerializer(farm.devices.all(), many=True).data,
+				"alarm": ProfileAlarmSerializer(farm.alarms.all(), many=True).data,
+				"silonic": ProfileSilonicSerializer(farm.silonics.all(), many=True).data,
+				"egg": ProfileEggSerializer(farm.eggs.all(),many=True,).data,
+				"userapp": ProfileUserAppSerializer(farm.userapps.all(), many=True).data,
+			})
+		return Response(data, status=status.HTTP_200_OK)
 
+	return Response({"message": "error", "detail": "Unknown cmd."}, status=status.HTTP_400_BAD_REQUEST)
+
+class RequestFarmFail(Exception):
+	def __init__(self, detail, status=status.HTTP_400_BAD_REQUEST):
+		self.detail = detail
+		self.status = status
+		super().__init__(str(detail))
 
 @api_view(['POST','GET'])
 def Api_RequestFarm(request, cmd):
@@ -310,6 +323,7 @@ def Api_RequestFarm(request, cmd):
 	user = ProfileUser.objects.filter(username__id=uid).first()
 	if not user:
 		return Response(data=TempNetResponseMsg.NO_USER, status=status.HTTP_404_NOT_FOUND)
+	
 
 	if request.method == 'POST':
 		if cmd == 'create':
@@ -318,7 +332,7 @@ def Api_RequestFarm(request, cmd):
 					body = request.data
 
 					if not isinstance(body, dict):
-						return Response({"message": "error", "detail": "Data not object."}, status=status.HTTP_400_BAD_REQUEST)
+						raise RequestFarmFail({"message": "error", "detail": "Data not object."}, status=status.HTTP_400_BAD_REQUEST)
 
 					farm_data = body.get("farm", {})
 					devices = body.get("device", [])
@@ -329,16 +343,14 @@ def Api_RequestFarm(request, cmd):
 
 					name_farm = farm_data.get("nameFarm")
 					if not name_farm:
-						return Response({"message": "error", "detail": "No farm name."}, status=status.HTTP_400_BAD_REQUEST)
+						raise RequestFarmFail({"message": "error", "detail": "No farm name."}, status=status.HTTP_400_BAD_REQUEST)
 
 					if ProfileFarm.objects.filter(nameFarm=name_farm).exists():
-						return Response({"message": "error", "detail": "This data already exists in the system1."}, status=status.HTTP_400_BAD_REQUEST)
-
-					farm_data["token"] = str(user.token)
+						raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system1."}, status=status.HTTP_400_BAD_REQUEST)
 
 					farm_serializer = ProfileFarmSerializer(data=farm_data)
 					farm_serializer.is_valid(raise_exception=True)
-					farm_obj = farm_serializer.save(token=str(user.token), status=StatusChoices.PENDING)
+					farm_obj = farm_serializer.save(user=user, status=StatusChoices.PENDING)
 
 					devices_create = []
 					silonics_create = []
@@ -360,19 +372,20 @@ def Api_RequestFarm(request, cmd):
 
 						if controller_sn:
 							if controller_sn in seen_controller_sn:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
 							seen_controller_sn.add(controller_sn)
 
 							if ProfileDevice.objects.filter(controllerSN=controller_sn).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system2."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system2."}, status=status.HTTP_400_BAD_REQUEST)
 
 						if smartlink_sn:
 							if smartlink_sn in seen_smartlink_sn:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+
 							seen_smartlink_sn.add(smartlink_sn)
 
 							if ProfileDevice.objects.filter(smartlinkSN=smartlink_sn).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system3."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system3."}, status=status.HTTP_400_BAD_REQUEST)
 
 						new = ProfileDevice(
 							nameFarm=farm_obj,
@@ -390,11 +403,11 @@ def Api_RequestFarm(request, cmd):
 
 						if serial_number:
 							if serial_number in seen_silonic_sn:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
 							seen_silonic_sn.add(serial_number)
 
 							if ProfileSilonic.objects.filter(serialNumber=serial_number).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system4."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system4."}, status=status.HTTP_400_BAD_REQUEST)
 
 						new = ProfileSilonic(
 							nameFarm=farm_obj,
@@ -410,11 +423,11 @@ def Api_RequestFarm(request, cmd):
 
 						if serial_number:
 							if serial_number in seen_egg_sn:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
 							seen_egg_sn.add(serial_number)
 
 							if ProfileEgg.objects.filter(serialNumber=serial_number).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system5."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system5."}, status=status.HTTP_400_BAD_REQUEST)
 
 						new = ProfileEgg(
 							nameFarm=farm_obj,
@@ -431,11 +444,11 @@ def Api_RequestFarm(request, cmd):
 
 						if serial_number:
 							if serial_number in seen_alarm_sn:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
 							seen_alarm_sn.add(serial_number)
 
 							if ProfileAlarm.objects.filter(serialNumber=serial_number).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system6."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system6."}, status=status.HTTP_400_BAD_REQUEST)
 
 						new = ProfileAlarm(
 							nameFarm=farm_obj,
@@ -452,11 +465,11 @@ def Api_RequestFarm(request, cmd):
 
 						if username:
 							if username in seen_usernames:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
 							seen_usernames.add(username)
 
 							if ProfileUserApp.objects.filter(username=username).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system7."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system7."}, status=status.HTTP_400_BAD_REQUEST)
 
 						new = ProfileUserApp(
 							nameFarm=farm_obj,
@@ -481,13 +494,17 @@ def Api_RequestFarm(request, cmd):
 					if users_create:
 						ProfileUserApp.objects.bulk_create(users_create)
 
-					return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_201_CREATED)
+				return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_201_CREATED)
+
+			except RequestFarmFail as e:
+				return Response(e.detail, status=e.status)
 
 			except serializers.ValidationError as e:
 				return Response({"message": "error", "detail": e.detail}, status=status.HTTP_400_BAD_REQUEST)
 
 			except Exception as e:
-				return Response({"message": "error", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+				logger.exception("Api_RequestFarm unexpected error")
+				return Response({"message": "error","detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 		# ================= UPDATE =================
 		elif cmd == 'update':
@@ -496,7 +513,7 @@ def Api_RequestFarm(request, cmd):
 					body = request.data
 
 					if not isinstance(body, dict):
-						return Response({"message": "error", "detail": "Data not object."}, status=status.HTTP_400_BAD_REQUEST)
+						raise RequestFarmFail({"message": "error", "detail": "Data not object."}, status=status.HTTP_400_BAD_REQUEST)
 
 					farm_data = body.get("farm", {})
 					devices = body.get("device", [])
@@ -507,16 +524,15 @@ def Api_RequestFarm(request, cmd):
 
 					name_farm = farm_data.get("nameFarm")
 					if not name_farm:
-						return Response({"message": "error", "detail": "No farm name."}, status=status.HTTP_400_BAD_REQUEST)
+						raise RequestFarmFail({"message": "error", "detail": "No farm name."}, status=status.HTTP_400_BAD_REQUEST)
 
-					farm_obj = ProfileFarm.objects.filter(nameFarm=name_farm).first()
+					farm_obj = ProfileFarm.objects.filter(nameFarm=name_farm, user=user).first()
 					if not farm_obj:
-						return Response({"message": "error", "detail": "This data does not exist in the system."}, status=status.HTTP_404_NOT_FOUND)
+						raise RequestFarmFail({"message": "error", "detail": "This data does not exist in the system."}, status=status.HTTP_404_NOT_FOUND)
 
 					farm_data = farm_data.copy()
 					farm_data.pop("id", None)
 					farm_data.pop("nameFarm", None)
-					farm_data.pop("token", None)
 
 					farm_serializer = ProfileFarmSerializer(farm_obj, data=farm_data, partial=True)
 					farm_serializer.is_valid(raise_exception=True)
@@ -542,12 +558,12 @@ def Api_RequestFarm(request, cmd):
 
 						if controller_sn:
 							if controller_sn in seen_controller_sn:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
 							seen_controller_sn.add(controller_sn)
 
 						if smartlink_sn:
 							if smartlink_sn in seen_smartlink_sn:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
 							seen_smartlink_sn.add(smartlink_sn)
 
 						existing = None
@@ -558,9 +574,9 @@ def Api_RequestFarm(request, cmd):
 
 						if existing:
 							if controller_sn and ProfileDevice.objects.filter(controllerSN=controller_sn).exclude(id=existing.id).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
 							if smartlink_sn and ProfileDevice.objects.filter(smartlinkSN=smartlink_sn).exclude(id=existing.id).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
 
 							existing.type = device.get("type", existing.type)
 							existing.modelTemp = device.get("modelTemp", existing.modelTemp)
@@ -571,9 +587,9 @@ def Api_RequestFarm(request, cmd):
 							kept_device_ids.append(existing.id)
 						else:
 							if controller_sn and ProfileDevice.objects.filter(controllerSN=controller_sn).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
 							if smartlink_sn and ProfileDevice.objects.filter(smartlinkSN=smartlink_sn).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
 
 							new_device = ProfileDevice.objects.create(
 								nameFarm=farm_obj,
@@ -593,7 +609,7 @@ def Api_RequestFarm(request, cmd):
 
 						if serial_number:
 							if serial_number in seen_silonic_sn:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
 							seen_silonic_sn.add(serial_number)
 
 						existing = ProfileSilonic.objects.filter(serialNumber=serial_number, nameFarm=farm_obj).first() if serial_number else None
@@ -605,7 +621,7 @@ def Api_RequestFarm(request, cmd):
 							kept_silonic_ids.append(existing.id)
 						else:
 							if serial_number and ProfileSilonic.objects.filter(serialNumber=serial_number).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
 
 							new_silonic = ProfileSilonic.objects.create(
 								nameFarm=farm_obj,
@@ -623,7 +639,7 @@ def Api_RequestFarm(request, cmd):
 
 						if serial_number:
 							if serial_number in seen_egg_sn:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
 							seen_egg_sn.add(serial_number)
 
 						existing = ProfileEgg.objects.filter(serialNumber=serial_number, nameFarm=farm_obj).first() if serial_number else None
@@ -636,7 +652,7 @@ def Api_RequestFarm(request, cmd):
 							kept_egg_ids.append(existing.id)
 						else:
 							if serial_number and ProfileEgg.objects.filter(serialNumber=serial_number).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
 
 							new_egg = ProfileEgg.objects.create(
 								nameFarm=farm_obj,
@@ -655,20 +671,20 @@ def Api_RequestFarm(request, cmd):
 
 						if serial_number:
 							if serial_number in seen_alarm_sn:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
 							seen_alarm_sn.add(serial_number)
 
 						existing = ProfileAlarm.objects.filter(serialNumber=serial_number, nameFarm=farm_obj).first() if serial_number else None
 
 						if existing:
 							existing.type = alarm.get("type", existing.type)
-							existing.modelAlarm = alarm.get("modelTemp", existing.modelAlarm)
+							existing.modelAlarm = alarm.get("modelAlarm", existing.modelAlarm)
 							existing.house = alarm.get("house", existing.house)
 							existing.save()
 							kept_alarm_ids.append(existing.id)
 						else:
 							if serial_number and ProfileAlarm.objects.filter(serialNumber=serial_number).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
 
 							new_alarm = ProfileAlarm.objects.create(
 								nameFarm=farm_obj,
@@ -687,7 +703,7 @@ def Api_RequestFarm(request, cmd):
 
 						if username:
 							if username in seen_usernames:
-								return Response({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
 							seen_usernames.add(username)
 
 						existing = ProfileUserApp.objects.filter(username=username, nameFarm=farm_obj).first() if username else None
@@ -699,7 +715,7 @@ def Api_RequestFarm(request, cmd):
 							kept_user_ids.append(existing.id)
 						else:
 							if username and ProfileUserApp.objects.filter(username=username).exists():
-								return Response({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
+								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
 
 							new_user = ProfileUserApp.objects.create(
 								nameFarm=farm_obj,
@@ -711,13 +727,17 @@ def Api_RequestFarm(request, cmd):
 
 					ProfileUserApp.objects.filter(nameFarm=farm_obj).exclude(id__in=kept_user_ids).delete()
 
-					return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_200_OK)
+				return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_200_OK)
+
+			except RequestFarmFail as e:
+				return Response(e.detail, status=e.status)
 
 			except serializers.ValidationError as e:
 				return Response({"message": "error", "detail": e.detail}, status=status.HTTP_400_BAD_REQUEST)
 
 			except Exception as e:
-				return Response({"message": "error", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+				logger.exception("Api_RequestFarm unexpected error")
+				return Response({"message": "error","detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 		return Response({"message": "error", "detail": "Unknow cmd"}, status=status.HTTP_400_BAD_REQUEST)
 

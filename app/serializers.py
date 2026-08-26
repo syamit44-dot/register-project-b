@@ -5,7 +5,7 @@ from .models import *
 class ProfileFarmSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProfileFarm
-        exclude = ['id', 'token', 'ip_address', 'ip_manage']
+        exclude = ['id', 'user', 'ip_address', 'ip_manage']
         read_only_fields = ['date_edit', 'status']
 
 class ProfileDeviceSerializer(serializers.ModelSerializer):
