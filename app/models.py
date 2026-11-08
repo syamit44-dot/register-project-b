@@ -273,8 +273,6 @@ class ModelControllerChoices(models.TextChoices):
     TP80 			 = 'TP80', 'TP80'
     PUNO207 		 = 'PUNOS207', 'Punos 207'
     PUNO515 		 = 'PUNOS515', 'Punos 515'
-    SILONIC_XI       = 'SILO-XI', 'SILONIC-XI'
-    EGG_C12          = 'EGG-C12', 'EGG-C12'
     OTHER            = 'OTHER', 'OTHER'
 
 class ModelAlarmChoices(models.TextChoices):

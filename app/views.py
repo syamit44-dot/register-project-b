@@ -5,6 +5,7 @@ import re
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db import transaction, IntegrityError
+from django.db.models import Case, Value, When
 from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
@@ -384,6 +385,8 @@ def Api_EquipmentModels(request):
             request_fail_response = {"message": "error", "detail": "Invalid category. Must be one of: " + ", ".join(EquipmentCategory.values)}
             return Response(request_fail_response, status=status.HTTP_400_BAD_REQUEST)
         queryset = queryset.filter(category=category)
+    other_last = Case(When(code__iexact="OTHER", then=Value(1)), default=Value(0))
+    queryset = queryset.order_by(other_last, "id")
     return Response(EquipmentModelSerializer(queryset, many=True).data, status=status.HTTP_200_OK)
 
 
