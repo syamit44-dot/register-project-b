@@ -4,6 +4,7 @@ venv/
 app/migrations/*
 !app/migrations/__init__.py
 !app/migrations/0002_profileuser_login_username.py
+!app/migrations/0003_remove_profilefarm_ponumber.py
 static/*
 !static/.gitkeep
 staticfiles/*

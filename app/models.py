@@ -424,7 +424,6 @@ class ProfileFarm(models.Model):
     emailFarm       = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
     saleName        = models.CharField("Sale Name/ชื่อตัวแทนจำหน่าย", max_length=50, null=True, blank=True)
     saleContract    = models.JSONField("Sale Contract/ช่องทางติดต่อตัวแทนจำหน่าย", null=True, blank=True)
-    poNumber        = models.CharField("PO Number/หมายเลขใบสั่งซื้อ", max_length=50, null=True, blank=True)
     timezone        = models.CharField("Time Zone", max_length=50, choices=TIMEZONE_CHOICES, default='Asia/Bangkok')
     date_created    = models.DateTimeField(auto_now_add=True)
     date_edit       = models.DateTimeField("Edit time", null=True, blank=True)
