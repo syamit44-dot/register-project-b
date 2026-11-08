@@ -405,10 +405,17 @@ class ProfileUser(models.Model):
         }
 
 
+class FarmIconChoices(models.IntegerChoices):
+    BARN = 0, "Barn"
+    EGG = 1, "Egg"
+    LEAF = 2, "Leaf"
+
+
 class ProfileFarm(models.Model):
     TIMEZONE_CHOICES = zip(pytz.all_timezones, pytz.all_timezones)
     status          = models.CharField("Status/สถานะ", max_length=50, choices=StatusChoices.choices, default=StatusChoices.PENDING)
     nameFarm 	    = models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, unique=True)
+    icon_id         = models.PositiveSmallIntegerField(choices=FarmIconChoices.choices, default=FarmIconChoices.BARN)
     numbOfHouse     = models.CharField("Number of House/จำนวนโรงเรือน", max_length=10, default='1')
     ip_address      = models.CharField("หมายเลข IP Controller", max_length=100, default='159.65.6.83:8001')
     ip_manage       = models.CharField("หมายเลข IP Management", max_length=100, default='152.42.174.114:8000')
@@ -429,6 +436,11 @@ class ProfileFarm(models.Model):
     date_edit       = models.DateTimeField("Edit time", null=True, blank=True)
     user            = models.ForeignKey(ProfileUser, on_delete=models.CASCADE, related_name="farms", verbose_name="เจ้าของฟาร์ม")
     note            = models.CharField("Note/หมายเหตุ", max_length=500, null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=models.Q(icon_id__in=FarmIconChoices.values), name="valid_farm_icon_id"),
+        ]
 
     def __str__(self):
         return f'{self.nameFarm}'

@@ -414,6 +414,24 @@ def Api_GetFarm(request, cmd):
 EDITABLE_BY_CUSTOMER = (StatusChoices.PENDING, StatusChoices.EDIT)
 
 
+@api_view(["PATCH"])
+@permission_classes([IsAuthenticated])
+def Api_FarmIcon(request, farm_id):
+    icon_id = request.data.get("icon_id") if isinstance(request.data, dict) else None
+    if type(icon_id) is not int or icon_id not in FarmIconChoices.values:
+        return Response({"detail": "Invalid icon_id."}, status=status.HTTP_400_BAD_REQUEST)
+
+    profile = get_profile(request)
+    with transaction.atomic():
+        farm = ProfileFarm.objects.select_for_update().filter(pk=farm_id, user=profile).first()
+        if farm is None:
+            return Response({"detail": "Farm not found."}, status=status.HTTP_404_NOT_FOUND)
+        farm.icon_id = icon_id
+        farm.save(update_fields=["icon_id"])
+
+    return Response({"icon_id": farm.icon_id})
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def Api_RequestFarm(request, cmd):
