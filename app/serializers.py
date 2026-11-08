@@ -35,8 +35,7 @@ class ProfileFarmSerializer(serializers.ModelSerializer):
         auth_user = owner.username
         return {
             "id": owner.id,
-            "username": auth_user.username,
-            "email": auth_user.email,
+            **ProfileUser.account_identity(auth_user, owner),
             "first_name": owner.first_name,
             "last_name": owner.last_name,
             "mobile": owner.mobile,

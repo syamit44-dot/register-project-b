@@ -373,7 +373,10 @@ class AccessKey(models.Model):
 
 
 class ProfileUser(models.Model):
+    LOGIN_USERNAME_MAX_LENGTH = 50
+
     username        = models.OneToOneField(User, on_delete=models.CASCADE)
+    login_username  = models.CharField(max_length=LOGIN_USERNAME_MAX_LENGTH, unique=True, null=True, blank=True, editable=False)
     first_name      = models.CharField(max_length=50, null=True, blank=True)
     last_name       = models.CharField(max_length=50, null=True, blank=True)
     country	        = models.CharField("Country/ประเทศ", max_length=50, choices=ModelCountryChoices.choices, default=ModelCountryChoices.TH)
@@ -393,6 +396,13 @@ class ProfileUser(models.Model):
 
     def __str__(self):
         return self.username.username
+
+    @staticmethod
+    def account_identity(user, profile=None):
+        return {
+            "username": (profile.login_username if profile else None) or user.username,
+            "email": user.email or (user.username if "@" in user.username else ""),
+        }
 
 
 class ProfileFarm(models.Model):

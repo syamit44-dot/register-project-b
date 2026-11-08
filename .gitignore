@@ -1,8 +1,9 @@
 **/__pycache__/
 venv/
 *.tar
-app/migrations/
+app/migrations/*
 !app/migrations/__init__.py
+!app/migrations/0002_profileuser_login_username.py
 static/*
 !static/.gitkeep
 staticfiles/*

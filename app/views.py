@@ -1,5 +1,6 @@
 import datetime
 import logging
+import re
 
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
@@ -27,6 +28,7 @@ from .utilities import CheckEmailValidate, CheckPasswordValidate, verify_captcha
 # from django.core.mail import EmailMessage
 # from app.email_utils import threaded_send_to_email
 logger = logging.getLogger(__name__)
+LOGIN_USERNAME_PATTERN = re.compile(r"[A-Za-z0-9]+")
 
 class SignInRateThrottle(ScopedRateThrottle):
 	scope = 'signin'
@@ -78,6 +80,40 @@ def access_key_problem(access_key_obj):
 	return None
 
 
+def signup_conflict(login_username, email):
+	if (
+		ProfileUser.objects.filter(login_username=login_username).exists()
+		or User.objects.filter(username__iexact=login_username).exists()
+	):
+		return "username_taken", "Username already exists."
+	if User.objects.filter(username__iexact=email).exists() or User.objects.filter(email__iexact=email).exists():
+		return "email_taken", "Email already exists."
+	return None
+
+
+def signup_conflict_response(conflict):
+	code, message = conflict
+	return Response({"code": code, "error": message}, status=status.HTTP_409_CONFLICT)
+
+
+def resolve_login_username(identifier, admin_login):
+	if "@" in identifier:
+		# Existing customer accounts use their email as the Django username.
+		users = User.objects.filter(username__iexact=identifier)
+		if not users.exists():
+			users = User.objects.filter(email__iexact=identifier)
+		matches = list(users.values_list("username", flat=True)[:2])
+		return matches[0] if len(matches) == 1 else identifier
+
+	# Native Django admin accounts retain priority on the admin entry point.
+	if admin_login and User.objects.filter(username=identifier).exists():
+		return identifier
+	if not LOGIN_USERNAME_PATTERN.fullmatch(identifier):
+		return identifier
+	profile = ProfileUser.objects.select_related("username").filter(login_username=identifier.lower()).first()
+	return profile.username.username if profile else identifier
+
+
 # ==== AUTH ====================================================================
 @api_view(['POST'])
 @authentication_classes([])
@@ -125,6 +161,7 @@ def CheckKey(request, cmd):
 @permission_classes([AllowAny])
 def Api_SignUp(request, cmd):
 	username = request.data.get('username', None)
+	email = request.data.get('email', None)
 	password = request.data.get('password', None)
 	accessKey = request.data.get('accessKey', None)
 	country = request.data.get('country', None)
@@ -140,16 +177,23 @@ def Api_SignUp(request, cmd):
 
 	if not accessKey:
 		return Response({"error": "No access."}, status=status.HTTP_400_BAD_REQUEST)
-	if not username or not password:
-		return Response({"error": "Please send username and password."}, status=status.HTTP_400_BAD_REQUEST)
-	if not CheckEmailValidate(username):
-		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
-	if not CheckPasswordValidate(password):
+	if (
+		not isinstance(username, str)
+		or len(username) > ProfileUser.LOGIN_USERNAME_MAX_LENGTH
+		or not LOGIN_USERNAME_PATTERN.fullmatch(username)
+	):
+		return Response({"code": "invalid_username", "error": "Use 1–50 English letters or digits for the username."}, status=status.HTTP_400_BAD_REQUEST)
+	username = username.lower()
+	if not isinstance(email, str) or len(email.strip()) > 150 or not CheckEmailValidate(email.strip()):
+		return Response({"code": "invalid_email", "error": "Enter a valid email address."}, status=status.HTTP_400_BAD_REQUEST)
+	email = email.strip().lower()
+	if not isinstance(password, str) or not CheckPasswordValidate(password):
 		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
 	if not country or country not in ModelCountryChoices.values:
 		return Response({"error": "Invalid country."}, status=status.HTTP_400_BAD_REQUEST)
-	if User.objects.filter(username=username).exists():
-		return Response({"error": "Username already exists."}, status=status.HTTP_409_CONFLICT)
+	conflict = signup_conflict(username, email)
+	if conflict:
+		return signup_conflict_response(conflict)
 
 	first_name = request.data.get('first_name', '') or ''
 	last_name = request.data.get('last_name', '') or ''
@@ -162,13 +206,15 @@ def Api_SignUp(request, cmd):
 				return problem
 
 			user_core = User.objects.create_user(
-				username=username,
+				username=email,
+				email=email,
 				password=password,
 				first_name=first_name,
 				last_name=last_name,
 			)
 			ProfileUser.objects.create(
 				username=user_core,
+				login_username=username,
 				first_name=user_core.first_name,
 				last_name=user_core.last_name,
 				mobile=mobile,
@@ -179,7 +225,14 @@ def Api_SignUp(request, cmd):
 			check.used_at = timezone.now()
 			check.save()
 
-	except Exception as e:
+	except IntegrityError:
+		# Another signup may have claimed the username or email after the initial check.
+		conflict = signup_conflict(username, email)
+		if conflict:
+			return signup_conflict_response(conflict)
+		logger.exception("Integrity error during signup")
+		return Response({"error": "Failed to create user."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+	except Exception:
 		logger.exception("Error creating user during signup")
 		return Response({"error": "Failed to create user."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -202,10 +255,11 @@ def Api_SignIn(request, cmd):
 	if not is_valid:
 		return Response({"error": error}, status=403)
 
-	if not username or not password:
+	if not isinstance(username, str) or not username.strip() or not isinstance(password, str) or not password:
 		return Response({'status': 'Failure', 'message': 'Username and password required'}, status=status.HTTP_400_BAD_REQUEST)
 
-	user = authenticate(username=username, password=password)
+	login_username = resolve_login_username(username.strip(), admin_login=(cmd == "admin"))
+	user = authenticate(request, username=login_username, password=password)
 	if user is None:
 		return Response({'status': 'Failure', 'message': 'Login failed'}, status=status.HTTP_401_UNAUTHORIZED)
 
@@ -214,7 +268,8 @@ def Api_SignIn(request, cmd):
 		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
 
 	# admins (createsuperuser) do not need a ProfileUser to sign in
-	if not admin and not ProfileUser.objects.filter(username=user).exists():
+	profile = getattr(user, "profileuser", None)
+	if not admin and profile is None:
 		return Response({'status': 'Failure', 'message': 'User not registered'}, status=status.HTTP_404_NOT_FOUND)
 
 	access_token = create_access_token(user)
@@ -225,7 +280,7 @@ def Api_SignIn(request, cmd):
 
 	response = Response({
 		'status': 'Success',
-		'username': user.username,
+		**ProfileUser.account_identity(user, profile),
 		'first_name': user.first_name,
 		'last_name': user.last_name,
 		'is_admin': admin,
@@ -261,7 +316,7 @@ def Api_RefreshToken(request, cmd):
 
 	return Response({
 		'status': 'Success',
-		'username': rt.user.username,
+		**ProfileUser.account_identity(rt.user, getattr(rt.user, "profileuser", None)),
 		'is_admin': is_admin_user(rt.user),
 		'access_token': new_access_token,
 	}, status=status.HTTP_200_OK)
