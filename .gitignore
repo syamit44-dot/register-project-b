@@ -6,6 +6,7 @@ app/migrations/*
 !app/migrations/0002_profileuser_login_username.py
 !app/migrations/0003_remove_profilefarm_ponumber.py
 !app/migrations/0004_profilefarm_icon_id.py
+!app/migrations/0005_profilefarm_pdpa_consent.py
 static/*
 !static/.gitkeep
 staticfiles/*

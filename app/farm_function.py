@@ -9,7 +9,7 @@ from django.utils import timezone  # after the star import on purpose
 # Constants
 # ---------------------------------------------------------------------------
 MAX_USERS_PER_MODEL = 5
-USERNAME_REGEX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9._-]*$")
+USERNAME_REGEX = re.compile(r"[a-z0-9]+@[a-z0-9]+")
 SALE_CONTRACT_KEYS = ("phone", "line", "email", "other_label", "other_value")
 
 
@@ -122,8 +122,8 @@ def normalize_house(value, existing_value=None):
 # Field validators (shared by serializers and views)
 # ---------------------------------------------------------------------------
 def validate_username_format(username):
-    if not username or len(username) > 50 or not USERNAME_REGEX.match(username):
-        request_fail("Invalid username format. Must be name@farm (letters, digits, '.', '_', '-').")
+    if not username or len(username) > 50 or not USERNAME_REGEX.fullmatch(username):
+        request_fail("App usernames must be name@farm using lowercase English letters and digits only (up to 50 characters).")
     return username
 
 
@@ -371,7 +371,6 @@ def sync_userapps(farm_obj, items):
 
         username = normalize_blank(item.get("username"))
         request_farm(username, "username is required.")
-        validate_username_format(username)
         check_dup_in_batch(username, seen_usernames, f"username '{username}' duplicated in submitted data.")
 
         existing = None
@@ -379,6 +378,9 @@ def sync_userapps(farm_obj, items):
             existing = ProfileUserApp.objects.filter(id=user_id, nameFarm=farm_obj).first()
             if not existing:
                 request_fail("UserApp id not found in this farm.")
+
+        if existing is None or existing.username != username:
+            validate_username_format(username)
 
         if ProfileUserApp.objects.filter(username=username).exclude(id=existing.id if existing else None).exists():
             request_fail(f"username '{username}' already exists in the system.")

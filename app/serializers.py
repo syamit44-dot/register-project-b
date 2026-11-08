@@ -99,7 +99,10 @@ class ProfileUserAppSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
     def validate_username(self, value):
-        return _run_validator(validate_username_format, value.strip())
+        username = value.strip()
+        if self.instance is not None and self.instance.username == username:
+            return username
+        return _run_validator(validate_username_format, username)
 
     def validate_deviceModel(self, value):
         if value.category != EquipmentCategory.CONTROLLER:

@@ -434,6 +434,7 @@ class ProfileFarm(models.Model):
     date_edit       = models.DateTimeField("Edit time", null=True, blank=True)
     user            = models.ForeignKey(ProfileUser, on_delete=models.CASCADE, related_name="farms", verbose_name="เจ้าของฟาร์ม")
     note            = models.CharField("Note/หมายเหตุ", max_length=500, null=True, blank=True)
+    pdpa_consent    = models.BooleanField(null=True, blank=True, default=None)
 
     class Meta:
         constraints = [
