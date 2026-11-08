@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 import os
 import environ
+from urllib.parse import urlparse
+from django.core.exceptions import ImproperlyConfigured
 from pathlib import Path
 from pickle import FALSE
 from dotenv import load_dotenv
@@ -27,7 +29,8 @@ TURNSTILE_SECRET_KEY = env("TURNSTILE_SECRET_KEY")
 # JWT Keys
 JWT_PRIVATE_KEY = os.environ.get('JWT_PRIVATE_KEY', '')
 JWT_PUBLIC_KEY = os.environ.get('JWT_PUBLIC_KEY', '')
-JWT_ACCESS_TOKEN_LIFETIME = int(os.environ.get('JWT_ACCESS_TOKEN_LIFETIME', 5))  # in minutes
+JWT_ACCESS_TOKEN_LIFETIME = int(os.environ.get('JWT_ACCESS_TOKEN_LIFETIME', 30))  # in minutes
+JWT_REFRESH_TOKEN_LIFETIME = int(os.environ.get('JWT_REFRESH_TOKEN_LIFETIME', 1440))  # in minutes (1 day)
 
 AES_KEY = os.environ.get('AES_KEY', "")
 
@@ -60,14 +63,13 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'corsheaders.middleware.CorsMiddleware', 
+    'corsheaders.middleware.CorsMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
 ]
 
@@ -98,13 +100,13 @@ WSGI_APPLICATION = 'TempNetRegister.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('DB_NAME', 'registerapp'),
         'USER': os.environ.get('DB_USER', 'root'),
+        'NAME': os.environ.get('DB_NAME', 'registerapp2'),
         'PASSWORD': os.environ.get('DB_PASS', 'password'),
         'PORT': '3306',
          'OPTIONS': {
             'init_command': 'SET sql_mode=STRICT_TRANS_TABLES',
-        }
+        }   
     },
 }
 
@@ -155,24 +157,26 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:8081",
-    "http://192.168.1.207:5173",
-]
+# Frontend origins: comma separated, e.g. FRONTEND_URL=https://app.example.com,http://localhost:5173
+# Used for CORS, CSRF and to derive refresh-cookie flags (see app/jwt.py get_cookie_options)
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+FRONTEND_ORIGINS = []
+for _raw in FRONTEND_URL.split(','):
+    _raw = _raw.strip().rstrip('/')
+    if not _raw:
+        continue
+    _parsed = urlparse(_raw)
+    if _parsed.scheme not in ('http', 'https') or not _parsed.hostname:
+        raise ImproperlyConfigured(f"Invalid FRONTEND_URL entry: {_raw!r}")
+    _origin = f"{_parsed.scheme}://{_parsed.netloc}"
+    if _origin not in FRONTEND_ORIGINS:
+        FRONTEND_ORIGINS.append(_origin)
+if not FRONTEND_ORIGINS:
+    raise ImproperlyConfigured("FRONTEND_URL must contain at least one origin")
 
+CORS_ALLOWED_ORIGINS = list(FRONTEND_ORIGINS)
 CORS_ALLOW_CREDENTIALS = True
-
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://192.168.1.207:5173",
-]
-
-CORS_ORIGIN_ALLOW_ALL = False
-# CORS_ORIGIN_WHITELIST = (
-# )
+CSRF_TRUSTED_ORIGINS = list(FRONTEND_ORIGINS)
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -181,6 +185,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [],
+    "DEFAULT_THROTTLE_RATES": {
+        "signin": "10/min",
+    }
 }
 
 # Email Configuration

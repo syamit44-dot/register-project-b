@@ -398,7 +398,7 @@ class ProfileUser(models.Model):
 class ProfileFarm(models.Model):
     TIMEZONE_CHOICES = zip(pytz.all_timezones, pytz.all_timezones)
     status          = models.CharField("Status/สถานะ", max_length=50, choices=StatusChoices.choices, default=StatusChoices.PENDING)
-    nameFarm 	    = models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, null=True, blank=True)
+    nameFarm 	    = models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, unique=True)
     numbOfHouse     = models.CharField("Number of House/จำนวนโรงเรือน", max_length=10, default='1')
     ip_address      = models.CharField("หมายเลข IP Controller", max_length=100, default='159.65.6.83:8001')
     ip_manage       = models.CharField("หมายเลข IP Management", max_length=100, default='152.42.174.114:8000')
@@ -413,7 +413,7 @@ class ProfileFarm(models.Model):
     mobile          = models.CharField("Phone/เบอร์โทรศัพท์", max_length=50, null=True, blank=True)
     emailFarm       = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
     saleName        = models.CharField("Sale Name/ชื่อตัวแทนจำหน่าย", max_length=50, null=True, blank=True)
-    saleContract    = models.CharField("Sale Contract/ช่องทางติดต่อตัวแทนจำหน่าย", max_length=50, null=True, blank=True)
+    saleContract    = models.JSONField("Sale Contract/ช่องทางติดต่อตัวแทนจำหน่าย", null=True, blank=True)
     poNumber        = models.CharField("PO Number/หมายเลขใบสั่งซื้อ", max_length=50, null=True, blank=True)
     timezone        = models.CharField("Time Zone", max_length=50, choices=TIMEZONE_CHOICES, default='Asia/Bangkok')
     date_created    = models.DateTimeField(auto_now_add=True)
@@ -425,15 +425,23 @@ class ProfileFarm(models.Model):
         return f'{self.nameFarm}'
 
 
-class ProfileUserApp(models.Model):
+class ProfileUserApp(EquipmentCategoryGuardMixin, models.Model):
+    equipment_field   = "deviceModel"
+    expected_category = EquipmentCategory.CONTROLLER
+
     USER            = 'User'
     SUPERUSER       = 'Superuser'
     USER_CHOICES    = [(USER,'User'),(SUPERUSER,'Superuser'),]
-    nameFarm        = models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, verbose_name='ชื่อฟาร์มแบบย่อ')
-    username        = models.CharField("Username/ชื่อผู้ใช้งาน", max_length=50, null=True, blank=True)
+    nameFarm        = models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, related_name="userapps", verbose_name='ชื่อฟาร์มแบบย่อ')
+    deviceModel     = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="userapps", limit_choices_to={"category": EquipmentCategory.CONTROLLER}, verbose_name='รุ่นเครื่อง')
+    username        = models.CharField("Username/ชื่อผู้ใช้งาน", max_length=50, unique=True)
     userType        = models.CharField("User type/ระดับของผู้ใช้", max_length=20, choices=USER_CHOICES, default=USER)
     userEmail       = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
     date_created    = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.nameFarm}'
@@ -446,11 +454,18 @@ class ProfileDevice(EquipmentCategoryGuardMixin, models.Model):
     modelTemp     = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="devices",limit_choices_to={"category": EquipmentCategory.CONTROLLER},verbose_name='รุ่นเครื่อง')
     nameFarm      = models.ForeignKey('ProfileFarm', on_delete=models.CASCADE, related_name="devices", verbose_name='ชื่อฟาร์มแบบย่อ')
     house         = models.CharField('หมายเลขโรงเรือน', max_length=10, blank=False, default='1')
-    controllerSN  = models.CharField('รหัสคอนโทรลเลอร์', max_length=50, blank=True, null=True)
-    smartlinkSN   = models.CharField('รหัสสมาร์ทลิงค์', max_length=50, blank=True, null=True)
+    controllerSN  = models.CharField('รหัสคอนโทรลเลอร์', max_length=50, blank=True, null=True, unique=True)
+    smartlinkSN   = models.CharField('รหัสสมาร์ทลิงค์', max_length=50, blank=True, null=True, unique=True)
 
     class Meta:
         ordering = ["modelTemp__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["nameFarm", "house"], name="uniq_device_per_farm_house"),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.nameFarm}'
@@ -464,7 +479,16 @@ class ProfileAlarm(EquipmentCategoryGuardMixin, models.Model):
     modelAlarm    = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="alarms", limit_choices_to={"category": EquipmentCategory.ALARM}, verbose_name='รุ่นเครื่อง')
     nameFarm      = models.ForeignKey('ProfileFarm', on_delete=models.CASCADE, related_name="alarms", verbose_name='ชื่อฟาร์มแบบย่อ')
     house         = models.CharField('หมายเลขโรงเรือน', max_length=10, blank=False, default='1')
-    serialNumber  = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
+    serialNumber  = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True, unique=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["nameFarm", "house"], name="uniq_alarm_per_farm_house"),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.nameFarm}'
@@ -478,7 +502,16 @@ class ProfileEgg(EquipmentCategoryGuardMixin, models.Model):
     modelEgg      = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="eggs", limit_choices_to={"category": EquipmentCategory.EGG}, verbose_name='รุ่นเครื่อง')
     nameFarm      = models.ForeignKey('ProfileFarm', on_delete=models.CASCADE, related_name="eggs", verbose_name='ชื่อฟาร์มแบบย่อ')
     house         = models.CharField('หมายเลขโรงเรือน', max_length=10, blank=False, default='1')
-    serialNumber  = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
+    serialNumber  = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True, unique=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["nameFarm", "house"], name="uniq_egg_per_farm_house"),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.nameFarm}'
@@ -492,7 +525,16 @@ class ProfileSilonic(EquipmentCategoryGuardMixin, models.Model):
     modelSilonic  = models.ForeignKey( EquipmentModel, on_delete=models.PROTECT, related_name="silonics", limit_choices_to={"category": EquipmentCategory.SILONIC}, verbose_name='รุ่นเครื่อง')
     nameFarm      = models.ForeignKey('ProfileFarm', on_delete=models.CASCADE, related_name="silonics", verbose_name='ชื่อฟาร์มแบบย่อ')
     house         = models.CharField('หมายเลขโรงเรือน', max_length=10, blank=False, default='1')
-    serialNumber  = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True)
+    serialNumber  = models.CharField('รหัสเครื่อง', max_length=50, blank=True, null=True, unique=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["nameFarm", "house"], name="uniq_silonic_per_farm_house"),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)       
 
     def __str__(self):
         return f'{self.nameFarm}'

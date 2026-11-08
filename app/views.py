@@ -1,23 +1,35 @@
-from django.utils import timezone
-from django.db import transaction
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import AllowAny
-from rest_framework.decorators import permission_classes
+import datetime
+import logging
+
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
-from .jwt import *
+from django.db import transaction, IntegrityError
+from django.utils import timezone
+from rest_framework import serializers, status
+from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
+
+from .farm_function import *
+from .jwt import (
+	REFRESH_COOKIE_NAME,
+	create_access_token,
+	create_refresh_token,
+	delete_refresh_cookie,
+	jwt_decode,
+	set_refresh_cookie,
+)
 from .models import *
-from .utilities import *
 from .serializers import *
-from .authentication import JWTAuthentication
-import datetime 
-import logging
+from .utilities import CheckEmailValidate, CheckPasswordValidate, verify_captcha
 
 # from django.core.mail import EmailMessage
 # from app.email_utils import threaded_send_to_email
 logger = logging.getLogger(__name__)
+
+class SignInRateThrottle(ScopedRateThrottle):
+	scope = 'signin'
 
 class TempNetResponseMsg:
 	NO_TOKEN		 	 = {'status': 'Not Found', 'message': 'No Token'}
@@ -41,7 +53,35 @@ class TempNetResponseMsg:
 	NO_DATETIME 		 = {'status': 'Failure', 'message': 'No date_time or invalid date_time'}
 
 
+
+def is_admin_user(user):
+	return bool(user and user.is_superuser and user.is_staff)
+
+
+def get_profile(request):
+	return ProfileUser.objects.filter(username=request.user).first()
+
+
+def get_admin_only_response(request):
+	"""None when the caller is an admin, otherwise a 403 Response."""
+	if not is_admin_user(request.user):
+		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
+	return None
+
+
+def access_key_problem(access_key_obj):
+	"""Return an error Response for a missing/used/expired key, else None."""
+	if access_key_obj is None or access_key_obj.is_used:
+		return Response({"error": "Not access"}, status=status.HTTP_401_UNAUTHORIZED)
+	if access_key_obj.expired_at <= timezone.now():
+		return Response({"error": "Access key expired."}, status=status.HTTP_401_UNAUTHORIZED)
+	return None
+
+
+# ==== AUTH ====================================================================
 @api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def Api_AccessKey(request, cmd):
 	username = request.data.get('username')
 	password = request.data.get('password')
@@ -54,36 +94,34 @@ def Api_AccessKey(request, cmd):
 	if user is None:
 		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
 
-	if not (user.is_superuser and user.is_staff):
+	if not is_admin_user(user):
 		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
 
 	if not saleName:
 		return Response({"error": "Who is you sale?."}, status=status.HTTP_400_BAD_REQUEST)
 
 	ass = AccessKey.objects.create(sale=saleName)
-	return Response({"detail": "created", "key":ass.key}, status=201)
+	return Response({"detail": "created", "key": ass.key}, status=201)
+
 
 @api_view(['POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def CheckKey(request, cmd):
 	accessKey = request.data.get('accessKey', None)
+	if not accessKey:
+		return Response({"error": "No access."}, status=status.HTTP_400_BAD_REQUEST)
 
-	with transaction.atomic():
-		if not accessKey:
-			return Response({"error": "No access."}, status=status.HTTP_400_BAD_REQUEST)
-
-		check = AccessKey.objects.select_for_update().filter(key=accessKey).first()
-
-		if check is None:
-			return Response({"error": "Not access"}, status=status.HTTP_401_UNAUTHORIZED)
-		if check.is_used == True:
-			return Response({"error": "Not access"}, status=status.HTTP_401_UNAUTHORIZED)
+	check = AccessKey.objects.filter(key=accessKey).first()
+	problem = access_key_problem(check)
+	if problem:
+		return problem
 
 	return Response({"message": "Access key is True."})
 
-	
 
 @api_view(['POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def Api_SignUp(request, cmd):
 	username = request.data.get('username', None)
@@ -92,22 +130,24 @@ def Api_SignUp(request, cmd):
 	country = request.data.get('country', None)
 	mobile = request.data.get('mobile', None)
 	token = request.data.get("captcha_token")
-		
-	# if not token:
-	# 	return Response({"error": "Captcha token not found."}, status=400)
 
-	# is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
-	# if not is_valid:
-	# 	return Response({"error": error}, status=403)
+	if not token:
+		return Response({"error": "Captcha token not found."}, status=400)
+
+	is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
+	if not is_valid:
+		return Response({"error": error}, status=403)
 
 	if not accessKey:
 		return Response({"error": "No access."}, status=status.HTTP_400_BAD_REQUEST)
 	if not username or not password:
 		return Response({"error": "Please send username and password."}, status=status.HTTP_400_BAD_REQUEST)
-	# if not CheckEmailValidate(username):
-	# 	return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
-	# if not CheckPasswordValidate(password):
-	# 	return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
+	if not CheckEmailValidate(username):
+		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
+	if not CheckPasswordValidate(password):
+		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
+	if not country or country not in ModelCountryChoices.values:
+		return Response({"error": "Invalid country."}, status=status.HTTP_400_BAD_REQUEST)
 	if User.objects.filter(username=username).exists():
 		return Response({"error": "Username already exists."}, status=status.HTTP_409_CONFLICT)
 
@@ -117,10 +157,9 @@ def Api_SignUp(request, cmd):
 	try:
 		with transaction.atomic():
 			check = AccessKey.objects.select_for_update().filter(key=accessKey).first()
-			if check is None:
-				return Response({"error": "Not access"}, status=status.HTTP_401_UNAUTHORIZED)
-			if check.is_used == True:
-				return Response({"error": "Not access"}, status=status.HTTP_401_UNAUTHORIZED)
+			problem = access_key_problem(check)
+			if problem:
+				return problem
 
 			user_core = User.objects.create_user(
 				username=username,
@@ -141,25 +180,27 @@ def Api_SignUp(request, cmd):
 			check.save()
 
 	except Exception as e:
-		print(f"Error creating user: {str(e)}")
+		logger.exception("Error creating user during signup")
 		return Response({"error": "Failed to create user."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-	return Response({"message": "Created success.","username": username,}, status=status.HTTP_201_CREATED)
+	return Response({"message": "Created success.", "username": username, }, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
+@throttle_classes([SignInRateThrottle])
 def Api_SignIn(request, cmd):
 	username = request.data.get('username', None)
 	password = request.data.get('password', None)
-	# token = request.data.get("captcha_token")
-		
-	# if not token:
-	# 	return Response({"error": "Captcha token not found."}, status=400)
+	token = request.data.get("captcha_token")
 
-	# is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
-	# if not is_valid:
-	# 	return Response({"error": error}, status=403)
+	if not token:
+		return Response({"error": "Captcha token not found."}, status=400)
+
+	is_valid, error = verify_captcha(token, remote_ip=request.META.get("REMOTE_ADDR"))
+	if not is_valid:
+		return Response({"error": error}, status=403)
 
 	if not username or not password:
 		return Response({'status': 'Failure', 'message': 'Username and password required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -168,8 +209,12 @@ def Api_SignIn(request, cmd):
 	if user is None:
 		return Response({'status': 'Failure', 'message': 'Login failed'}, status=status.HTTP_401_UNAUTHORIZED)
 
-	profile = ProfileUser.objects.filter(username=user).first()
-	if profile is None:
+	admin = is_admin_user(user)
+	if cmd == "admin" and not admin:
+		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
+
+	# admins (createsuperuser) do not need a ProfileUser to sign in
+	if not admin and not ProfileUser.objects.filter(username=user).exists():
 		return Response({'status': 'Failure', 'message': 'User not registered'}, status=status.HTTP_404_NOT_FOUND)
 
 	access_token = create_access_token(user)
@@ -178,33 +223,24 @@ def Api_SignIn(request, cmd):
 	if access_token is None or refresh_token is None:
 		return Response({'status': 'Failure', 'message': 'Could not generate token'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-	# models_qs = ModelController.objects.values('model')
-	# ip_qs = ModelIpAddress.objects.select_related('model').values('model__model', 'ipAddress')
-
 	response = Response({
 		'status': 'Success',
 		'username': user.username,
 		'first_name': user.first_name,
-		'last_name': user.last_name,		
+		'last_name': user.last_name,
+		'is_admin': admin,
 		'access_token': access_token,
-		# 'models': list(models_qs),
-		# 'ip_addresses': list(ip_qs),
 	}, status=status.HTTP_200_OK)
 
-	response.set_cookie(
-		'refresh_token',
-		refresh_token,
-		httponly=True,
-		secure=True,
-		samesite='Lax',
-		max_age=7*24*60*60,
-	)
+	set_refresh_cookie(response, request, refresh_token)
 	return response
 
 
 @api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def Api_RefreshToken(request, cmd):
-	token = request.COOKIES.get('refresh_token')
+	token = request.COOKIES.get(REFRESH_COOKIE_NAME)
 	if not token:
 		return Response({'status': 'Failure', 'message': 'refresh_token required'}, status=status.HTTP_401_UNAUTHORIZED)
 
@@ -212,9 +248,8 @@ def Api_RefreshToken(request, cmd):
 	if not payload or payload.get('type') != 'refresh':
 		return Response({'status': 'Failure', 'message': 'Invalid refresh token'}, status=status.HTTP_401_UNAUTHORIZED)
 
-	try:
-		rt = RefreshToken.objects.get(jti=payload['jti'], revoked=False)
-	except RefreshToken.DoesNotExist:
+	rt = RefreshToken.objects.select_related('user').filter(jti=payload.get('jti'), revoked=False).first()
+	if rt is None or rt.user_id != payload.get('uid') or not rt.user.is_active:
 		return Response({'status': 'Failure', 'message': 'Invalid refresh token'}, status=status.HTTP_401_UNAUTHORIZED)
 
 	if rt.expires_at <= timezone.now():
@@ -226,519 +261,227 @@ def Api_RefreshToken(request, cmd):
 
 	return Response({
 		'status': 'Success',
+		'username': rt.user.username,
+		'is_admin': is_admin_user(rt.user),
 		'access_token': new_access_token,
 	}, status=status.HTTP_200_OK)
 
 
-def get_bearer_token(request):
-	"""ดึง token จาก header: Authorization: Bearer <token>"""
-	auth_header = request.headers.get('Authorization', '')
-	if not auth_header.startswith('Bearer '):
-		return None
-	return auth_header.split(' ', 1)[1].strip()
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def Api_Logout(request, cmd):
+	"""Revoke the refresh token (if any) and clear the cookie. Always 200 so sign-out never gets stuck."""
+	token = request.COOKIES.get(REFRESH_COOKIE_NAME)
+	payload = jwt_decode(token) if token else None
+	if payload and payload.get('type') == 'refresh' and payload.get('jti'):
+		RefreshToken.objects.filter(jti=payload['jti']).update(revoked=True)
+
+	response = Response({'status': 'Success'}, status=status.HTTP_200_OK)
+	delete_refresh_cookie(response, request)
+	return response
+
+# ==== FARM ====================================================================
+def farm_error_response(exc):
+    """Convert exceptions raised while handling a farm request into the standard error Response."""
+    if isinstance(exc, RequestFarmFail):
+        return Response(exc.detail, status=exc.http_status)
+    if isinstance(exc, serializers.ValidationError):
+        return Response({"message": "error", "detail": exc.detail}, status=status.HTTP_400_BAD_REQUEST)
+    if isinstance(exc, IntegrityError):
+        logger.exception("Farm request integrity error")
+        return Response(
+            {"message": "error", "detail": "Duplicate data (farm name, serial number or username is already in use)."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    logger.exception("Farm request unexpected error")
+    return Response({"message": "error", "detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@api_view(['POST', 'GET'])
+def serialize_farm(farm):
+    """One farm + child rows (uses prefetched relations, ids included)."""
+    return {
+        "farm": ProfileFarmSerializer(farm).data,
+        "device": ProfileDeviceSerializer(farm.devices.all(), many=True).data,
+        "alarm": ProfileAlarmSerializer(farm.alarms.all(), many=True).data,
+        "silonic": ProfileSilonicSerializer(farm.silonics.all(), many=True).data,
+        "egg": ProfileEggSerializer(farm.eggs.all(), many=True).data,
+        "userapp": ProfileUserAppSerializer(farm.userapps.all(), many=True).data,
+    }
+
+
+def farm_queryset_with_children():
+    return (
+        ProfileFarm.objects.select_related("user__username")
+        .prefetch_related("devices", "alarms", "silonics", "eggs", "userapps")
+        .order_by("-date_created")
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def Api_EquipmentModels(request):
+    queryset = EquipmentModel.objects.all()
+    category = normalize_blank(request.query_params.get("category"))
+    if category:
+        category = category.upper()
+        if category not in EquipmentCategory.values:
+            request_fail_response = {"message": "error", "detail": "Invalid category. Must be one of: " + ", ".join(EquipmentCategory.values)}
+            return Response(request_fail_response, status=status.HTTP_400_BAD_REQUEST)
+        queryset = queryset.filter(category=category)
+    return Response(EquipmentModelSerializer(queryset, many=True).data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
 def Api_GetFarm(request, cmd):
-	access_token = get_bearer_token(request)
-	if not access_token:
-		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
+    if cmd == "user":
+        profile = get_profile(request)
+        if profile is None:
+            # admin accounts created by createsuperuser have no ProfileUser and no farms
+            if is_admin_user(request.user):
+                return Response([], status=status.HTTP_200_OK)
+            return Response(data=TempNetResponseMsg.NO_USER, status=status.HTTP_404_NOT_FOUND)
+        farm_queryset = farm_queryset_with_children().filter(user=profile)
 
-	payload = jwt_decode(access_token)
-	if not payload:
-		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
+    elif cmd == "admin":
+        denied = get_admin_only_response(request)
+        if denied:
+            return denied
+        farm_queryset = farm_queryset_with_children()
 
-	if payload.get('type') != 'access':
-		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
+    else:
+        return Response({"message": "error", "detail": "Unknown cmd."}, status=status.HTTP_400_BAD_REQUEST)
 
-	uid = payload.get('uid')
-	if not uid:
-		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
+    return Response([serialize_farm(farm) for farm in farm_queryset], status=status.HTTP_200_OK)
 
-	user = ProfileUser.objects.filter(username__id=uid).first()
-	if not user:
-		return Response(data=TempNetResponseMsg.NO_USER, status=status.HTTP_404_NOT_FOUND)
 
-	if cmd == "user":
-		farm_queryset = (
-			ProfileFarm.objects.filter(user=user).prefetch_related(
-				"devices",
-				"alarms",
-				"silonics",
-				"eggs",
-				"userapps",
-			))
+EDITABLE_BY_CUSTOMER = (StatusChoices.PENDING, StatusChoices.EDIT)
 
-	elif cmd == "admin":
 
-		if not (user.username.is_superuser and user.username.is_staff):
-			return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN,)
-
-		farm_queryset = (ProfileFarm.objects.select_related("user").prefetch_related(
-				"devices",
-				"alarms",
-				"silonics",
-				"eggs",
-				"userapps",
-			))
-
-	data = []
-	if farm_queryset:
-		for farm in farm_queryset:
-			data.append({
-				"farm": ProfileFarmSerializer(farm).data,
-				"device": ProfileDeviceSerializer(farm.devices.all(), many=True).data,
-				"alarm": ProfileAlarmSerializer(farm.alarms.all(), many=True).data,
-				"silonic": ProfileSilonicSerializer(farm.silonics.all(), many=True).data,
-				"egg": ProfileEggSerializer(farm.eggs.all(),many=True,).data,
-				"userapp": ProfileUserAppSerializer(farm.userapps.all(), many=True).data,
-			})
-		return Response(data, status=status.HTTP_200_OK)
-
-	return Response({"message": "error", "detail": "Unknown cmd."}, status=status.HTTP_400_BAD_REQUEST)
-
-class RequestFarmFail(Exception):
-	def __init__(self, detail, status=status.HTTP_400_BAD_REQUEST):
-		self.detail = detail
-		self.status = status
-		super().__init__(str(detail))
-
-@api_view(['POST','GET'])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def Api_RequestFarm(request, cmd):
-	access_token = get_bearer_token(request)
-	if not access_token:
-		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
-
-	payload = jwt_decode(access_token)
-	if not payload:
-		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
-
-	if payload.get('type') != 'access':
-		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
-
-	uid = payload.get('uid')
-	if not uid:
-		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_401_UNAUTHORIZED)
-
-	user = ProfileUser.objects.filter(username__id=uid).first()
-	if not user:
-		return Response(data=TempNetResponseMsg.NO_USER, status=status.HTTP_404_NOT_FOUND)
-	
-
-	if request.method == 'POST':
-		if cmd == 'create':
-			try:
-				with transaction.atomic():
-					body = request.data
-
-					if not isinstance(body, dict):
-						raise RequestFarmFail({"message": "error", "detail": "Data not object."}, status=status.HTTP_400_BAD_REQUEST)
-
-					farm_data = body.get("farm", {})
-					devices = body.get("device", [])
-					silonics = body.get("silonic", [])
-					eggs = body.get("egg", [])
-					alarms = body.get("alarm", [])
-					users = body.get("userapp", [])
-
-					name_farm = farm_data.get("nameFarm")
-					if not name_farm:
-						raise RequestFarmFail({"message": "error", "detail": "No farm name."}, status=status.HTTP_400_BAD_REQUEST)
-
-					if ProfileFarm.objects.filter(nameFarm=name_farm).exists():
-						raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system1."}, status=status.HTTP_400_BAD_REQUEST)
-
-					farm_serializer = ProfileFarmSerializer(data=farm_data)
-					farm_serializer.is_valid(raise_exception=True)
-					farm_obj = farm_serializer.save(user=user, status=StatusChoices.PENDING)
-
-					devices_create = []
-					silonics_create = []
-					eggs_create = []
-					alarms_create = []
-					users_create = []
-
-					seen_controller_sn = set()
-					seen_smartlink_sn = set()
-					seen_silonic_sn = set()
-					seen_egg_sn = set()
-					seen_alarm_sn = set()
-					seen_usernames = set()
-
-					# ---- Device ----
-					for device in devices:
-						controller_sn = device.get("controllerSN")
-						smartlink_sn = device.get("smartlinkSN")
-
-						if controller_sn:
-							if controller_sn in seen_controller_sn:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-							seen_controller_sn.add(controller_sn)
-
-							if ProfileDevice.objects.filter(controllerSN=controller_sn).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system2."}, status=status.HTTP_400_BAD_REQUEST)
-
-						if smartlink_sn:
-							if smartlink_sn in seen_smartlink_sn:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-
-							seen_smartlink_sn.add(smartlink_sn)
-
-							if ProfileDevice.objects.filter(smartlinkSN=smartlink_sn).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system3."}, status=status.HTTP_400_BAD_REQUEST)
-
-						new = ProfileDevice(
-							nameFarm=farm_obj,
-							type=device.get("type"),
-							modelTemp=device.get("modelTemp"),
-							house=device.get("house", "1"),
-							controllerSN=device.get("controllerSN"),
-							smartlinkSN=device.get("smartlinkSN"),
-						)
-						devices_create.append(new)
-
-					# ---- Silonic ----
-					for silonic in silonics:
-						serial_number = silonic.get("serialNumber")
-
-						if serial_number:
-							if serial_number in seen_silonic_sn:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-							seen_silonic_sn.add(serial_number)
-
-							if ProfileSilonic.objects.filter(serialNumber=serial_number).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system4."}, status=status.HTTP_400_BAD_REQUEST)
-
-						new = ProfileSilonic(
-							nameFarm=farm_obj,
-							type=silonic.get("type"),
-							house=silonic.get("house", "1"),
-							serialNumber=silonic.get("serialNumber"),
-						)
-						silonics_create.append(new)
-
-					# ---- Egg (ProfileEgg) ----
-					for egg in eggs:
-						serial_number = egg.get("serialNumber")
-
-						if serial_number:
-							if serial_number in seen_egg_sn:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-							seen_egg_sn.add(serial_number)
-
-							if ProfileEgg.objects.filter(serialNumber=serial_number).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system5."}, status=status.HTTP_400_BAD_REQUEST)
-
-						new = ProfileEgg(
-							nameFarm=farm_obj,
-							type=egg.get("type"),
-							modelEgg=egg.get("modelEgg"),
-							house=egg.get("house", "1"),
-							serialNumber=egg.get("serialNumber"),
-						)
-						eggs_create.append(new)
-
-					# ---- Alarm ----
-					for alarm in alarms:
-						serial_number = alarm.get("serialNumber")
-
-						if serial_number:
-							if serial_number in seen_alarm_sn:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-							seen_alarm_sn.add(serial_number)
-
-							if ProfileAlarm.objects.filter(serialNumber=serial_number).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system6."}, status=status.HTTP_400_BAD_REQUEST)
-
-						new = ProfileAlarm(
-							nameFarm=farm_obj,
-							type=alarm.get("type"),
-							modelAlarm=alarm.get("modelAlarm"),
-							house=alarm.get("house", "1"),
-							serialNumber=alarm.get("serialNumber"),
-						)
-						alarms_create.append(new)
-
-					# ---- UserApp ----
-					for u in users:
-						username = u.get("username")
-
-						if username:
-							if username in seen_usernames:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-							seen_usernames.add(username)
-
-							if ProfileUserApp.objects.filter(username=username).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system7."}, status=status.HTTP_400_BAD_REQUEST)
-
-						new = ProfileUserApp(
-							nameFarm=farm_obj,
-							username=u.get("username"),
-							userType=u.get("userType"),
-							userEmail=u.get("userEmail"),
-						)
-						users_create.append(new)
-
-					if devices_create:
-						ProfileDevice.objects.bulk_create(devices_create)
-
-					if silonics_create:
-						ProfileSilonic.objects.bulk_create(silonics_create)
-
-					if eggs_create:
-						ProfileEgg.objects.bulk_create(eggs_create)
-
-					if alarms_create:
-						ProfileAlarm.objects.bulk_create(alarms_create)
-
-					if users_create:
-						ProfileUserApp.objects.bulk_create(users_create)
-
-				return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_201_CREATED)
-
-			except RequestFarmFail as e:
-				return Response(e.detail, status=e.status)
-
-			except serializers.ValidationError as e:
-				return Response({"message": "error", "detail": e.detail}, status=status.HTTP_400_BAD_REQUEST)
-
-			except Exception as e:
-				logger.exception("Api_RequestFarm unexpected error")
-				return Response({"message": "error","detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-		# ================= UPDATE =================
-		elif cmd == 'update':
-			try:
-				with transaction.atomic():
-					body = request.data
-
-					if not isinstance(body, dict):
-						raise RequestFarmFail({"message": "error", "detail": "Data not object."}, status=status.HTTP_400_BAD_REQUEST)
-
-					farm_data = body.get("farm", {})
-					devices = body.get("device", [])
-					silonics = body.get("silonic", [])
-					eggs = body.get("egg", [])
-					alarms = body.get("alarm", [])
-					users = body.get("userapp", [])
-
-					name_farm = farm_data.get("nameFarm")
-					if not name_farm:
-						raise RequestFarmFail({"message": "error", "detail": "No farm name."}, status=status.HTTP_400_BAD_REQUEST)
-
-					farm_obj = ProfileFarm.objects.filter(nameFarm=name_farm, user=user).first()
-					if not farm_obj:
-						raise RequestFarmFail({"message": "error", "detail": "This data does not exist in the system."}, status=status.HTTP_404_NOT_FOUND)
-
-					farm_data = farm_data.copy()
-					farm_data.pop("id", None)
-					farm_data.pop("nameFarm", None)
-
-					farm_serializer = ProfileFarmSerializer(farm_obj, data=farm_data, partial=True)
-					farm_serializer.is_valid(raise_exception=True)
-					farm_obj = farm_serializer.save(status=StatusChoices.EDIT, date_edit=timezone.now())
-
-					seen_controller_sn = set()
-					seen_smartlink_sn = set()
-					seen_silonic_sn = set()
-					seen_egg_sn = set()
-					seen_alarm_sn = set()
-					seen_usernames = set()
-
-					kept_device_ids = []
-					kept_silonic_ids = []
-					kept_egg_ids = []
-					kept_alarm_ids = []
-					kept_user_ids = []
-
-					# ---- Device ----
-					for device in devices:
-						controller_sn = device.get("controllerSN")
-						smartlink_sn = device.get("smartlinkSN")
-
-						if controller_sn:
-							if controller_sn in seen_controller_sn:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-							seen_controller_sn.add(controller_sn)
-
-						if smartlink_sn:
-							if smartlink_sn in seen_smartlink_sn:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-							seen_smartlink_sn.add(smartlink_sn)
-
-						existing = None
-						if controller_sn:
-							existing = ProfileDevice.objects.filter(controllerSN=controller_sn, nameFarm=farm_obj).first()
-						if not existing and smartlink_sn:
-							existing = ProfileDevice.objects.filter(smartlinkSN=smartlink_sn, nameFarm=farm_obj).first()
-
-						if existing:
-							if controller_sn and ProfileDevice.objects.filter(controllerSN=controller_sn).exclude(id=existing.id).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
-							if smartlink_sn and ProfileDevice.objects.filter(smartlinkSN=smartlink_sn).exclude(id=existing.id).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
-
-							existing.type = device.get("type", existing.type)
-							existing.modelTemp = device.get("modelTemp", existing.modelTemp)
-							existing.house = device.get("house", existing.house)
-							existing.controllerSN = controller_sn if controller_sn is not None else existing.controllerSN
-							existing.smartlinkSN = smartlink_sn if smartlink_sn is not None else existing.smartlinkSN
-							existing.save()
-							kept_device_ids.append(existing.id)
-						else:
-							if controller_sn and ProfileDevice.objects.filter(controllerSN=controller_sn).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
-							if smartlink_sn and ProfileDevice.objects.filter(smartlinkSN=smartlink_sn).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
-
-							new_device = ProfileDevice.objects.create(
-								nameFarm=farm_obj,
-								type=device.get("type"),
-								modelTemp=device.get("modelTemp"),
-								house=device.get("house", "1"),
-								controllerSN=controller_sn,
-								smartlinkSN=smartlink_sn,
-							)
-							kept_device_ids.append(new_device.id)
-
-					ProfileDevice.objects.filter(nameFarm=farm_obj).exclude(id__in=kept_device_ids).delete()
-
-					# ---- Silonic ----
-					for silonic in silonics:
-						serial_number = silonic.get("serialNumber")
-
-						if serial_number:
-							if serial_number in seen_silonic_sn:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-							seen_silonic_sn.add(serial_number)
-
-						existing = ProfileSilonic.objects.filter(serialNumber=serial_number, nameFarm=farm_obj).first() if serial_number else None
-
-						if existing:
-							existing.type = silonic.get("type", existing.type)
-							existing.house = silonic.get("house", existing.house)
-							existing.save()
-							kept_silonic_ids.append(existing.id)
-						else:
-							if serial_number and ProfileSilonic.objects.filter(serialNumber=serial_number).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
-
-							new_silonic = ProfileSilonic.objects.create(
-								nameFarm=farm_obj,
-								type=silonic.get("type"),
-								house=silonic.get("house", "1"),
-								serialNumber=serial_number,
-							)
-							kept_silonic_ids.append(new_silonic.id)
-
-					ProfileSilonic.objects.filter(nameFarm=farm_obj).exclude(id__in=kept_silonic_ids).delete()
-
-					# ---- Egg (ProfileEgg) ----
-					for egg in eggs:
-						serial_number = egg.get("serialNumber")
-
-						if serial_number:
-							if serial_number in seen_egg_sn:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-							seen_egg_sn.add(serial_number)
-
-						existing = ProfileEgg.objects.filter(serialNumber=serial_number, nameFarm=farm_obj).first() if serial_number else None
-
-						if existing:
-							existing.type = egg.get("type", existing.type)
-							existing.modelEgg = egg.get("modelEgg", existing.modelEgg)
-							existing.house = egg.get("house", existing.house)
-							existing.save()
-							kept_egg_ids.append(existing.id)
-						else:
-							if serial_number and ProfileEgg.objects.filter(serialNumber=serial_number).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
-
-							new_egg = ProfileEgg.objects.create(
-								nameFarm=farm_obj,
-								type=egg.get("type"),
-								modelEgg=egg.get("modelEgg"),
-								house=egg.get("house", "1"),
-								serialNumber=serial_number,
-							)
-							kept_egg_ids.append(new_egg.id)
-
-					ProfileEgg.objects.filter(nameFarm=farm_obj).exclude(id__in=kept_egg_ids).delete()
-
-					# ---- Alarm ----
-					for alarm in alarms:
-						serial_number = alarm.get("serialNumber")
-
-						if serial_number:
-							if serial_number in seen_alarm_sn:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-							seen_alarm_sn.add(serial_number)
-
-						existing = ProfileAlarm.objects.filter(serialNumber=serial_number, nameFarm=farm_obj).first() if serial_number else None
-
-						if existing:
-							existing.type = alarm.get("type", existing.type)
-							existing.modelAlarm = alarm.get("modelAlarm", existing.modelAlarm)
-							existing.house = alarm.get("house", existing.house)
-							existing.save()
-							kept_alarm_ids.append(existing.id)
-						else:
-							if serial_number and ProfileAlarm.objects.filter(serialNumber=serial_number).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
-
-							new_alarm = ProfileAlarm.objects.create(
-								nameFarm=farm_obj,
-								type=alarm.get("type"),
-								modelAlarm=alarm.get("modelAlarm"),
-								house=alarm.get("house", "1"),
-								serialNumber=serial_number,
-							)
-							kept_alarm_ids.append(new_alarm.id)
-
-					ProfileAlarm.objects.filter(nameFarm=farm_obj).exclude(id__in=kept_alarm_ids).delete()
-
-					# ---- UserApp ----
-					for u in users:
-						username = u.get("username")
-
-						if username:
-							if username in seen_usernames:
-								raise RequestFarmFail({"message": "error", "detail": "The submitted data is duplicated."}, status=status.HTTP_400_BAD_REQUEST)
-							seen_usernames.add(username)
-
-						existing = ProfileUserApp.objects.filter(username=username, nameFarm=farm_obj).first() if username else None
-
-						if existing:
-							existing.userType = u.get("userType", existing.userType)
-							existing.userEmail = u.get("userEmail", existing.userEmail)
-							existing.save()
-							kept_user_ids.append(existing.id)
-						else:
-							if username and ProfileUserApp.objects.filter(username=username).exists():
-								raise RequestFarmFail({"message": "error", "detail": "This data already exists in the system."}, status=status.HTTP_400_BAD_REQUEST)
-
-							new_user = ProfileUserApp.objects.create(
-								nameFarm=farm_obj,
-								username=username,
-								userType=u.get("userType"),
-								userEmail=u.get("userEmail"),
-							)
-							kept_user_ids.append(new_user.id)
-
-					ProfileUserApp.objects.filter(nameFarm=farm_obj).exclude(id__in=kept_user_ids).delete()
-
-				return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_200_OK)
-
-			except RequestFarmFail as e:
-				return Response(e.detail, status=e.status)
-
-			except serializers.ValidationError as e:
-				return Response({"message": "error", "detail": e.detail}, status=status.HTTP_400_BAD_REQUEST)
-
-			except Exception as e:
-				logger.exception("Api_RequestFarm unexpected error")
-				return Response({"message": "error","detail": "Internal server error."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-		return Response({"message": "error", "detail": "Unknow cmd"}, status=status.HTTP_400_BAD_REQUEST)
-
-	return Response({"message": "error", "detail": "Method not allowed for this cmd"}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+    profile = get_profile(request)
+    if profile is None:
+        return Response(data=TempNetResponseMsg.NO_USER, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        with transaction.atomic():
+            body = request.data
+            if not isinstance(body, dict):
+                request_fail("Data not object.")
+
+            farm_data = body.get("farm", {})
+            if not isinstance(farm_data, dict):
+                request_fail("'farm' must be an object.")
+
+            if cmd == "create":
+                farm_obj = create_farm(farm_data, profile, ProfileFarmSerializer)
+                sync_farm_children(farm_obj, body)
+                return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_201_CREATED)
+
+            if cmd == "update":
+                farm_id = to_int(farm_data.get("id"), "farm id")
+                if not farm_id:
+                    request_fail("No farm id.")
+
+                farm_obj = ProfileFarm.objects.select_for_update().filter(id=farm_id, user=profile).first()
+                if not farm_obj:
+                    request_fail("Farm not found.", http_status=status.HTTP_404_NOT_FOUND)
+                if farm_obj.status not in EDITABLE_BY_CUSTOMER:
+                    request_fail(
+                        f"This farm can no longer be edited (status: {farm_obj.status}).",
+                        http_status=status.HTTP_403_FORBIDDEN,
+                    )
+
+                farm_obj = update_farm(farm_obj, farm_data, ProfileFarmSerializer, new_status=StatusChoices.EDIT)
+                sync_farm_children(farm_obj, body)
+                return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_200_OK)
+
+            request_fail("Unknown cmd.")
+    except Exception as e:
+        return farm_error_response(e)
+
+
+# ==== ADMIN FARM ==============================================================
+def get_farm_for_admin(farm_id):
+    """Lock and return the farm (any owner), or raise a 404 RequestFarmFail."""
+    farm_obj = ProfileFarm.objects.select_for_update().filter(id=farm_id).first()
+    if not farm_obj:
+        request_fail("Farm not found.", http_status=status.HTTP_404_NOT_FOUND)
+    return farm_obj
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def Api_AdminFarmStatus(request, farm_id, cmd):
+    """Approve / reject a farm. Allowed from any status so an admin can change a decision."""
+    denied = get_admin_only_response(request)
+    if denied:
+        return denied
+
+    try:
+        with transaction.atomic():
+            farm_obj = get_farm_for_admin(farm_id)
+            if cmd == "approve":
+                farm_obj.status = StatusChoices.APPROVE
+            elif cmd == "reject":
+                farm_obj.status = StatusChoices.REJECT
+            else:
+                request_fail("Unknown cmd.")
+            farm_obj.save(update_fields=["status"])
+
+            if cmd == "approve":
+                on_farm_approved(farm_obj)
+
+            return Response({"message": "ok", "farm_id": farm_obj.id, "status": farm_obj.status}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return farm_error_response(e)
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def Api_AdminFarmDelete(request, farm_id):
+    """Delete a farm; devices/alarms/eggs/silonics/app users are removed by cascade."""
+    denied = get_admin_only_response(request)
+    if denied:
+        return denied
+
+    try:
+        with transaction.atomic():
+            farm_obj = get_farm_for_admin(farm_id)
+            farm_obj.delete()
+            return Response({"message": "ok", "farm_id": int(farm_id)}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return farm_error_response(e)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def Api_AdminRequestUpdate(request):
+    """Admin edit of any farm (any status, any owner). Same payload as /api/request/update; status is kept."""
+    denied = get_admin_only_response(request)
+    if denied:
+        return denied
+
+    try:
+        with transaction.atomic():
+            body = request.data
+            if not isinstance(body, dict):
+                request_fail("Data not object.")
+
+            farm_data = body.get("farm", {})
+            if not isinstance(farm_data, dict):
+                request_fail("'farm' must be an object.")
+
+            farm_id = to_int(farm_data.get("id"), "farm id")
+            if not farm_id:
+                request_fail("No farm id.")
+
+            farm_obj = get_farm_for_admin(farm_id)
+            farm_obj = update_farm(farm_obj, farm_data, ProfileFarmSerializer, new_status=None)
+            sync_farm_children(farm_obj, body)
+            return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return farm_error_response(e)

@@ -33,6 +33,7 @@ urlpatterns = [
     # url(r'^api/register-farm$', views.RegisterFarm, {'cmd': None})
     url(r'^api/check-key$', views.CheckKey , {'cmd': None}),
     url(r'^api/signin$', views.Api_SignIn , {'cmd': None}),
+    url(r'^api/signin/admin$', views.Api_SignIn , {'cmd': 'admin'}),
     url(r'^api/signup$', views.Api_SignUp , {'cmd': None}),
 
     # url(r'^api/getotp$', views.Api_GetOTP , {'cmd': None}),
@@ -40,8 +41,13 @@ urlpatterns = [
 
     url(r'^api/generate$', views.Api_AccessKey , {'cmd': None}),
     url(r'^api/refresh$', views.Api_RefreshToken , {'cmd': None}),
+    url(r'^api/logout$', views.Api_Logout , {'cmd': None}),
+    url(r'^api/equipment-models$', views.Api_EquipmentModels),
     url(r'^api/get-farm/user$', views.Api_GetFarm , {'cmd': 'user'}),
     url(r'^api/get-farm/admin$', views.Api_GetFarm , {'cmd': 'admin'}),
     url(r'^api/request/new$', views.Api_RequestFarm , {'cmd': 'create'}),
     url(r'^api/request/update$', views.Api_RequestFarm , {'cmd': 'update'}),
+    url(r'^api/admin/farm/(?P<farm_id>\d+)/(?P<cmd>approve|reject)$', views.Api_AdminFarmStatus),
+    url(r'^api/admin/farm/(?P<farm_id>\d+)$', views.Api_AdminFarmDelete),
+    url(r'^api/admin/request/update$', views.Api_AdminRequestUpdate),
 ]

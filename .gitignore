@@ -9,3 +9,4 @@ staticfiles/*
 !staticfiles/.gitkeep
 .env
 *.pem
+backup.md
