@@ -31,8 +31,9 @@ class ModelIpAddressAdmin(admin.ModelAdmin):
 admin.site.register(ModelIpAddress, ModelIpAddressAdmin)
 
 class AccessKeyAdmin(admin.ModelAdmin):
-    list_display = ('user', 'sale', 'key', 'is_used', 'created_at','used_at', 'expired_at')
-    search_fields = ['user', 'sale', 'key', 'is_used']
+    list_display = ('user', 'sale', 'is_used', 'created_at', 'used_at', 'expired_at')
+    search_fields = ['user', 'sale']
+    exclude = ('key',)
 admin.site.register(AccessKey, AccessKeyAdmin)
 
 class ProfileDeviceInline(admin.TabularInline):

@@ -368,7 +368,7 @@ class AccessKey(models.Model):
         db_table = "access_keys"
 
     def __str__(self):
-        return self.key
+        return f"Verification code #{self.pk}"
 
 
 class ProfileUser(models.Model):
