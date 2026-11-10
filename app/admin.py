@@ -5,6 +5,7 @@ import uuid
 
 admin.site.site_header = "TempNet Register V.zero"
 admin.site.site_title = 'TempNet'
+admin.site.index_template = 'register_admin/index.html'
 admin.site.unregister(Group)
 
 def new_generate_token(modeladmin, request, queryset):
