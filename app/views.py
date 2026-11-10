@@ -169,6 +169,7 @@ def Api_SignUp(request, cmd):
 	accessKey = request.data.get('accessKey', None)
 	country = request.data.get('country', None)
 	mobile = request.data.get('mobile', None)
+	account_type = request.data.get('account_type', WebUserType.CUSTOMER)
 	token = request.data.get("captcha_token")
 
 	if not token:
@@ -193,6 +194,8 @@ def Api_SignUp(request, cmd):
 		return Response({"error": "Username or Password must be a valid."}, status=status.HTTP_401_UNAUTHORIZED)
 	if not country or country not in ModelCountryChoices.values:
 		return Response({"error": "Invalid country."}, status=status.HTTP_400_BAD_REQUEST)
+	if account_type not in WebUserType.values:
+		return Response({"code": "invalid_account_type", "error": "Choose Customer or Dealer."}, status=status.HTTP_400_BAD_REQUEST)
 	conflict = signup_conflict(username, email)
 	if conflict:
 		return signup_conflict_response(conflict)
@@ -217,6 +220,7 @@ def Api_SignUp(request, cmd):
 			ProfileUser.objects.create(
 				username=user_core,
 				login_username=username,
+				account_type=account_type,
 				first_name=user_core.first_name,
 				last_name=user_core.last_name,
 				mobile=mobile,

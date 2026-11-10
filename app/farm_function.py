@@ -8,7 +8,7 @@ from django.utils import timezone  # after the star import on purpose
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-MAX_USERS_PER_MODEL = 5
+MAX_FARM_USERS = 5
 USERNAME_REGEX = re.compile(r"[a-z0-9]+@[a-z0-9]+")
 SALE_CONTRACT_KEYS = ("phone", "line", "email", "other_label", "other_value")
 
@@ -92,6 +92,8 @@ def get_user_type(raw_value, existing_value=None, provided=True):
         value = existing_value or ProfileUserApp.USER
     else:
         value = normalize_blank(raw_value) or (existing_value or ProfileUserApp.USER)
+    if value == "User":
+        value = ProfileUserApp.USER
     if value not in valid_values:
         request_fail("Invalid userType. Must be one of: " + ", ".join(valid_values))
     return value
@@ -400,22 +402,41 @@ def sync_userapps(farm_obj, items):
         user_email = normalize_blank(item.get("userEmail")) if "userEmail" in item \
             else (existing.userEmail if existing else None)
 
-        prepared.append((existing, username, device_model, user_type, user_email))
+        is_dealer = item.get("isDealer", existing.isDealer if existing else False)
+        if not isinstance(is_dealer, bool):
+            request_fail("isDealer must be a boolean.")
+        prepared.append((existing, username, device_model, user_type, user_email, is_dealer))
+
+    dealer_count = sum(row[5] for row in prepared)
+    if dealer_count and farm_obj.user.account_type != WebUserType.DEALER:
+        request_fail("Only Dealer accounts can add a dealer app user.")
+    if dealer_count > 1:
+        request_fail("Only one dealer app user is allowed per farm.")
+    main_count = len(prepared) - dealer_count
+    main_superusers = sum(row[3] == ProfileUserApp.SUPERUSER and not row[5] for row in prepared)
+    if main_count > MAX_FARM_USERS or main_superusers > 1:
+        # Existing farms may reduce or keep their legacy counts when editing.
+        previous_main = farm_obj.userapps.filter(isDealer=False)
+        if main_count > MAX_FARM_USERS and main_count > previous_main.count():
+            request_fail(f"Maximum {MAX_FARM_USERS} main app users per farm.")
+        if main_superusers > 1 and main_superusers > previous_main.filter(userType=ProfileUserApp.SUPERUSER).count():
+            request_fail("Only one Superuser is allowed among the main app users.")
 
     keep_ids = [p[0].id for p in prepared if p[0]]
     ProfileUserApp.objects.filter(nameFarm=farm_obj).exclude(id__in=keep_ids).delete()
 
-    for existing, username, device_model, user_type, user_email in prepared:
+    for existing, username, device_model, user_type, user_email, is_dealer in prepared:
         if existing:
             existing.username = username
             existing.deviceModel = device_model
             existing.userType = user_type
             existing.userEmail = user_email
+            existing.isDealer = is_dealer
             existing.save()
         else:
             ProfileUserApp.objects.create(
                 nameFarm=farm_obj, username=username, deviceModel=device_model,
-                userType=user_type, userEmail=user_email,
+                userType=user_type, userEmail=user_email, isDealer=is_dealer,
             )
 
 
@@ -427,7 +448,6 @@ def validate_farm_consistency(farm_obj):
     - every house 1..numbOfHouse has at least one equipment row
     - no house outside 1..numbOfHouse
     - each app user's deviceModel is used by a controller of this farm
-    - at most MAX_USERS_PER_MODEL users per (farm, controller model)
     """
     num_houses = get_num_houses(farm_obj)
 
@@ -447,15 +467,9 @@ def validate_farm_consistency(farm_obj):
     controller_model_ids = set(
         ProfileDevice.objects.filter(nameFarm=farm_obj).values_list("modelTemp_id", flat=True)
     )
-    per_model = {}
     for username, model_id in ProfileUserApp.objects.filter(nameFarm=farm_obj).values_list("username", "deviceModel_id"):
         if model_id not in controller_model_ids:
             request_fail(f"User '{username}' is bound to a model that is not installed in this farm.")
-        per_model[model_id] = per_model.get(model_id, 0) + 1
-    for model_id, count in per_model.items():
-        if count > MAX_USERS_PER_MODEL:
-            name = EquipmentModel.objects.filter(id=model_id).values_list("name", flat=True).first()
-            request_fail(f"Model {name} has {count} users. Maximum is {MAX_USERS_PER_MODEL} per model.")
 
 
 def sync_farm_children(farm_obj, body):

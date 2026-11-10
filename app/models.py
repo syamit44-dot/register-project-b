@@ -371,10 +371,16 @@ class AccessKey(models.Model):
         return self.key
 
 
+class WebUserType(models.TextChoices):
+    CUSTOMER = "customer", "Customer"
+    DEALER = "dealer", "Dealer"
+
+
 class ProfileUser(models.Model):
     LOGIN_USERNAME_MAX_LENGTH = 50
 
     username        = models.OneToOneField(User, on_delete=models.CASCADE)
+    account_type    = models.CharField(max_length=8, choices=WebUserType.choices, default=WebUserType.CUSTOMER)
     login_username  = models.CharField(max_length=LOGIN_USERNAME_MAX_LENGTH, null=True, blank=True, editable=False)
     login_username_key = models.GeneratedField(
         expression=Lower("login_username"),
@@ -408,6 +414,7 @@ class ProfileUser(models.Model):
         return {
             "username": (profile.login_username if profile else None) or user.username,
             "email": user.email or (user.username if "@" in user.username else ""),
+            "account_type": profile.account_type if profile else WebUserType.CUSTOMER,
         }
 
 
@@ -457,13 +464,14 @@ class ProfileUserApp(EquipmentCategoryGuardMixin, models.Model):
     equipment_field   = "deviceModel"
     expected_category = EquipmentCategory.CONTROLLER
 
-    USER            = 'User'
+    USER            = 'Normaluser'
     SUPERUSER       = 'Superuser'
-    USER_CHOICES    = [(USER,'User'),(SUPERUSER,'Superuser'),]
+    USER_CHOICES    = [(USER,'Normaluser'),(SUPERUSER,'Superuser'),]
     nameFarm        = models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, related_name="userapps", verbose_name='ชื่อฟาร์มแบบย่อ')
     deviceModel     = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="userapps", limit_choices_to={"category": EquipmentCategory.CONTROLLER}, verbose_name='รุ่นเครื่อง')
     username        = models.CharField("Username/ชื่อผู้ใช้งาน", max_length=50, unique=True)
     userType        = models.CharField("User type/ระดับของผู้ใช้", max_length=20, choices=USER_CHOICES, default=USER)
+    isDealer        = models.BooleanField(default=False)
     userEmail       = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
     date_created    = models.DateTimeField(auto_now_add=True)
 
