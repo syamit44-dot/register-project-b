@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.functions import Lower
 from datetime import datetime
 from django.contrib.auth.models import User
 import uuid
@@ -374,7 +375,14 @@ class ProfileUser(models.Model):
     LOGIN_USERNAME_MAX_LENGTH = 50
 
     username        = models.OneToOneField(User, on_delete=models.CASCADE)
-    login_username  = models.CharField(max_length=LOGIN_USERNAME_MAX_LENGTH, unique=True, null=True, blank=True, editable=False)
+    login_username  = models.CharField(max_length=LOGIN_USERNAME_MAX_LENGTH, null=True, blank=True, editable=False)
+    login_username_key = models.GeneratedField(
+        expression=Lower("login_username"),
+        output_field=models.CharField(max_length=LOGIN_USERNAME_MAX_LENGTH),
+        db_persist=False,
+        null=True,
+        unique=True,
+    )
     first_name      = models.CharField(max_length=50, null=True, blank=True)
     last_name       = models.CharField(max_length=50, null=True, blank=True)
     country	        = models.CharField("Country/ประเทศ", max_length=50, choices=ModelCountryChoices.choices, default=ModelCountryChoices.TH)

@@ -83,7 +83,7 @@ def access_key_problem(access_key_obj):
 
 def signup_conflict(login_username, email):
 	if (
-		ProfileUser.objects.filter(login_username=login_username).exists()
+		ProfileUser.objects.filter(login_username_key=login_username.lower()).exists()
 		or User.objects.filter(username__iexact=login_username).exists()
 	):
 		return "username_taken", "Username already exists."
@@ -107,12 +107,14 @@ def resolve_login_username(identifier, admin_login):
 		return matches[0] if len(matches) == 1 else identifier
 
 	# Native Django admin accounts retain priority on the admin entry point.
-	if admin_login and User.objects.filter(username=identifier).exists():
+	if admin_login and identifier in User.objects.filter(username=identifier).values_list("username", flat=True):
 		return identifier
 	if not LOGIN_USERNAME_PATTERN.fullmatch(identifier):
 		return identifier
-	profile = ProfileUser.objects.select_related("username").filter(login_username=identifier.lower()).first()
-	return profile.username.username if profile else identifier
+	profile = ProfileUser.objects.select_related("username").filter(login_username_key=identifier.lower()).first()
+	if profile is None:
+		return identifier
+	return profile.username.username if profile.login_username == identifier else None
 
 
 # ==== AUTH ====================================================================
@@ -184,7 +186,6 @@ def Api_SignUp(request, cmd):
 		or not LOGIN_USERNAME_PATTERN.fullmatch(username)
 	):
 		return Response({"code": "invalid_username", "error": "Use 1–50 English letters or digits for the username."}, status=status.HTTP_400_BAD_REQUEST)
-	username = username.lower()
 	if not isinstance(email, str) or len(email.strip()) > 150 or not CheckEmailValidate(email.strip()):
 		return Response({"code": "invalid_email", "error": "Enter a valid email address."}, status=status.HTTP_400_BAD_REQUEST)
 	email = email.strip().lower()
@@ -261,7 +262,7 @@ def Api_SignIn(request, cmd):
 
 	login_username = resolve_login_username(username.strip(), admin_login=(cmd == "admin"))
 	user = authenticate(request, username=login_username, password=password)
-	if user is None:
+	if user is None or user.username != login_username:
 		return Response({'status': 'Failure', 'message': 'Login failed'}, status=status.HTTP_401_UNAUTHORIZED)
 
 	admin = is_admin_user(user)
