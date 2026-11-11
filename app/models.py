@@ -293,7 +293,7 @@ class StatusChoices(models.TextChoices):
     PENDING          = 'PENDING', 'Pending'
     REJECT           = 'REJECT', 'Reject'
     APPROVE          = 'APPROVE', 'Approve'
-    EDIT             = 'EDIT', 'Edit'
+    EDIT             = 'EDIT', 'Edited'
 
 class TypeChoices(models.TextChoices):
     SMARTLINK        = 'SMARTLINK', 'SmartLink'
@@ -477,20 +477,23 @@ class ProfileFarm(models.Model):
         return f'{self.nameFarm}'
 
 
-class ProfileUserApp(EquipmentCategoryGuardMixin, models.Model):
-    equipment_field   = "deviceModel"
-    expected_category = EquipmentCategory.CONTROLLER
+class ProfileUserApp(models.Model):
+    APP_EQUIPMENT_CATEGORIES = (EquipmentCategory.CONTROLLER, EquipmentCategory.SILONIC)
 
     USER            = 'Normaluser'
     SUPERUSER       = 'Superuser'
     USER_CHOICES    = [(USER,'Normaluser'),(SUPERUSER,'Superuser'),]
     nameFarm        = models.ForeignKey(ProfileFarm, on_delete=models.CASCADE, related_name="userapps", verbose_name='ชื่อฟาร์มแบบย่อ')
-    deviceModel     = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="userapps", limit_choices_to={"category": EquipmentCategory.CONTROLLER}, verbose_name='รุ่นเครื่อง')
+    deviceModel     = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="userapps", limit_choices_to={"category__in": APP_EQUIPMENT_CATEGORIES}, verbose_name='รุ่นเครื่อง')
     username        = models.CharField("Username/ชื่อผู้ใช้งาน", max_length=50, unique=True)
     userType        = models.CharField("User type/ระดับของผู้ใช้", max_length=20, choices=USER_CHOICES, default=USER)
     isDealer        = models.BooleanField("Distributor app user", default=False)
     userEmail       = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
     date_created    = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        if self.deviceModel_id and self.deviceModel.category not in self.APP_EQUIPMENT_CATEGORIES:
+            raise ValidationError({"deviceModel": "Choose a controller or Weight Scale model."})
 
     def save(self, *args, **kwargs):
         self.clean()
@@ -575,6 +578,7 @@ class ProfileSilonic(EquipmentCategoryGuardMixin, models.Model):
     expected_category = EquipmentCategory.SILONIC
 
     type          = models.CharField("ประเภทการเชื่อมต่อ", max_length=20, choices=TypeChoices, default=TypeChoices.SMARTLINK)
+    useApp        = models.BooleanField(default=False)
     modelSilonic  = models.ForeignKey( EquipmentModel, on_delete=models.PROTECT, related_name="silonics", limit_choices_to={"category": EquipmentCategory.SILONIC}, verbose_name='รุ่นเครื่อง')
     nameFarm      = models.ForeignKey('ProfileFarm', on_delete=models.CASCADE, related_name="silonics", verbose_name='ชื่อฟาร์มแบบย่อ')
     house         = models.CharField('หมายเลขโรงเรือน', max_length=10, blank=False, default='1')
@@ -583,6 +587,7 @@ class ProfileSilonic(EquipmentCategoryGuardMixin, models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["nameFarm", "house"], name="uniq_silonic_per_farm_house"),
+            models.CheckConstraint(condition=models.Q(useApp=False) | models.Q(type=TypeChoices.SMARTLINK), name="silonic_app_requires_smartlink"),
         ]
 
     def save(self, *args, **kwargs):

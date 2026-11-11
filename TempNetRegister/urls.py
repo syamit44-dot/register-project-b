@@ -46,6 +46,8 @@ urlpatterns = [
     url(r'^api/get-farm/user$', views.Api_GetFarm , {'cmd': 'user'}),
     path('api/farms/<int:farm_id>/icon', views.Api_FarmIcon),
     url(r'^api/get-farm/admin$', views.Api_GetFarm , {'cmd': 'admin'}),
+    path('api/get-farm/user/<int:farm_id>', views.Api_GetFarm, {'cmd': 'user'}),
+    path('api/get-farm/admin/<int:farm_id>', views.Api_GetFarm, {'cmd': 'admin'}),
     url(r'^api/request/new$', views.Api_RequestFarm , {'cmd': 'create'}),
     url(r'^api/request/update$', views.Api_RequestFarm , {'cmd': 'update'}),
     url(r'^api/admin/farm/(?P<farm_id>\d+)/(?P<cmd>approve|reject)$', views.Api_AdminFarmStatus),

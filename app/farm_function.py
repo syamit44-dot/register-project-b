@@ -99,12 +99,12 @@ def get_user_type(raw_value, existing_value=None, provided=True):
     return value
 
 
-def get_equipment_model(model_id, category):
+def get_equipment_model(model_id, *categories):
     model_id = to_int(model_id, "equipment model id")
     if not model_id:
         request_fail("No equipment model.")
     try:
-        return EquipmentModel.objects.get(id=model_id, category=category)
+        return EquipmentModel.objects.get(id=model_id, category__in=categories)
     except EquipmentModel.DoesNotExist:
         request_fail("Invalid equipment model.")
 
@@ -181,21 +181,17 @@ def create_farm(farm_data, owner, farm_serializer_class):
         request_fail("Farm name already exists in the system.")
 
 
-def update_farm(farm_obj, farm_data, farm_serializer_class, new_status=None):
+def update_farm(farm_obj, farm_data, farm_serializer_class):
     """
-    Partial update of ProfileFarm. nameFarm / id / status / owner are never taken from the payload.
-    new_status: set to change status (customer edit -> EDIT); None keeps the current status (admin edit).
+    Partially update a farm awaiting approval and return it to review.
     """
     farm_data = dict(farm_data)
-    for key in ("id", "nameFarm", "status", "user", "date_created", "date_edit"):
+    for key in ("id", "status", "user", "date_created", "date_edit"):
         farm_data.pop(key, None)
 
     farm_serializer = farm_serializer_class(farm_obj, data=farm_data, partial=True)
     farm_serializer.is_valid(raise_exception=True)
-    extra = {"date_edit": timezone.now()}
-    if new_status:
-        extra["status"] = new_status
-    return farm_serializer.save(**extra)
+    return farm_serializer.save(date_edit=timezone.now(), status=StatusChoices.EDIT)
 
 
 # ---------------------------------------------------------------------------
@@ -339,22 +335,30 @@ def sync_serial_equipment(farm_obj, items, model_class, model_field, category, l
         if model_class.objects.filter(serialNumber=serial_number).exclude(id=exclude_id).exists():
             request_fail(f"{label} serialNumber already exists in the system.")
 
-        prepared.append((existing, item_type, equipment_model, house, serial_number))
+        extra = {}
+        if model_class is ProfileSilonic:
+            use_app = item.get("useApp", bool(existing and existing.useApp and item_type == TypeChoices.SMARTLINK))
+            if not isinstance(use_app, bool) or (use_app and item_type != TypeChoices.SMARTLINK):
+                request_fail("Weight Scale app use requires SmartLink and a boolean useApp value.")
+            extra["useApp"] = use_app
+        prepared.append((existing, item_type, equipment_model, house, serial_number, extra))
 
     keep_ids = [p[0].id for p in prepared if p[0]]
     model_class.objects.filter(nameFarm=farm_obj).exclude(id__in=keep_ids).delete()
 
-    for existing, item_type, equipment_model, house, serial_number in prepared:
+    for existing, item_type, equipment_model, house, serial_number, extra in prepared:
         if existing:
             existing.type = item_type
             existing.house = house
             existing.serialNumber = serial_number
             setattr(existing, model_field, equipment_model)
+            for key, value in extra.items():
+                setattr(existing, key, value)
             existing.save()
         else:
             model_class.objects.create(
                 nameFarm=farm_obj, type=item_type, house=house,
-                serialNumber=serial_number, **{model_field: equipment_model},
+                serialNumber=serial_number, **{model_field: equipment_model}, **extra,
             )
 
 
@@ -388,7 +392,7 @@ def sync_userapps(farm_obj, items):
             request_fail(f"username '{username}' already exists in the system.")
 
         if "deviceModel" in item:
-            device_model = get_equipment_model(item.get("deviceModel"), EquipmentCategory.CONTROLLER)
+            device_model = get_equipment_model(item.get("deviceModel"), *ProfileUserApp.APP_EQUIPMENT_CATEGORIES)
         elif existing:
             device_model = existing.deviceModel
         else:
@@ -447,7 +451,7 @@ def validate_farm_consistency(farm_obj):
     """
     - every house 1..numbOfHouse has at least one equipment row
     - no house outside 1..numbOfHouse
-    - each app user's deviceModel is used by a controller of this farm
+    - each app user's model belongs to a controller or an app-enabled SmartLink scale in this farm
     """
     num_houses = get_num_houses(farm_obj)
 
@@ -464,12 +468,15 @@ def validate_farm_consistency(farm_obj):
     if missing:
         request_fail(f"House {', '.join(missing)} has no equipment. Every house needs at least 1 device.")
 
-    controller_model_ids = set(
+    app_model_ids = set(
         ProfileDevice.objects.filter(nameFarm=farm_obj).values_list("modelTemp_id", flat=True)
     )
+    app_model_ids.update(ProfileSilonic.objects.filter(
+        nameFarm=farm_obj, type=TypeChoices.SMARTLINK, useApp=True,
+    ).values_list("modelSilonic_id", flat=True))
     for username, model_id in ProfileUserApp.objects.filter(nameFarm=farm_obj).values_list("username", "deviceModel_id"):
-        if model_id not in controller_model_ids:
-            request_fail(f"User '{username}' is bound to a model that is not installed in this farm.")
+        if model_id not in app_model_ids:
+            request_fail(f"User '{username}' must be bound to a controller or an app-enabled SmartLink Weight Scale in this farm.")
 
 
 def sync_farm_children(farm_obj, body):

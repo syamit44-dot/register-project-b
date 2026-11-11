@@ -105,8 +105,8 @@ class ProfileUserAppSerializer(serializers.ModelSerializer):
         return _run_validator(validate_username_format, username)
 
     def validate_deviceModel(self, value):
-        if value.category != EquipmentCategory.CONTROLLER:
-            raise serializers.ValidationError("deviceModel must be a CONTROLLER model.")
+        if value.category not in ProfileUserApp.APP_EQUIPMENT_CATEGORIES:
+            raise serializers.ValidationError("Choose a controller or Weight Scale model.")
         return value
 
 

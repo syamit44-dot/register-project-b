@@ -399,12 +399,12 @@ def Api_EquipmentModels(request):
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
-def Api_GetFarm(request, cmd):
+def Api_GetFarm(request, cmd, farm_id=None):
     if cmd == "user":
         profile = get_profile(request)
         if profile is None:
             # admin accounts created by createsuperuser have no ProfileUser and no farms
-            if is_admin_user(request.user):
+            if farm_id is None and is_admin_user(request.user):
                 return Response([], status=status.HTTP_200_OK)
             return Response(data=TempNetResponseMsg.NO_USER, status=status.HTTP_404_NOT_FOUND)
         farm_queryset = farm_queryset_with_children().filter(user=profile)
@@ -418,10 +418,17 @@ def Api_GetFarm(request, cmd):
     else:
         return Response({"message": "error", "detail": "Unknown cmd."}, status=status.HTTP_400_BAD_REQUEST)
 
+    if farm_id is not None:
+        farm = farm_queryset.filter(pk=farm_id).first()
+        if farm is None:
+            return Response({"detail": "Farm not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(serialize_farm(farm))
     return Response([serialize_farm(farm) for farm in farm_queryset], status=status.HTTP_200_OK)
 
 
-EDITABLE_BY_CUSTOMER = (StatusChoices.PENDING, StatusChoices.EDIT)
+def require_editable_farm(farm):
+    if farm.status == StatusChoices.APPROVE:
+        request_fail("Approved farms are read-only.", http_status=status.HTTP_403_FORBIDDEN)
 
 
 @api_view(["PATCH"])
@@ -479,15 +486,10 @@ def Api_RequestFarm(request, cmd):
                 farm_obj = ProfileFarm.objects.select_for_update().filter(id=farm_id, user=profile).first()
                 if not farm_obj:
                     request_fail("Farm not found.", http_status=status.HTTP_404_NOT_FOUND)
-                if farm_obj.status not in EDITABLE_BY_CUSTOMER:
-                    request_fail(
-                        f"This farm can no longer be edited (status: {farm_obj.status}).",
-                        http_status=status.HTTP_403_FORBIDDEN,
-                    )
-
-                farm_obj = update_farm(farm_obj, farm_data, ProfileFarmSerializer, new_status=StatusChoices.EDIT)
+                require_editable_farm(farm_obj)
+                farm_obj = update_farm(farm_obj, farm_data, ProfileFarmSerializer)
                 sync_farm_children(farm_obj, body)
-                return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_200_OK)
+                return Response({"message": "ok", "farm_id": farm_obj.id, "status": farm_obj.status})
 
             request_fail("Unknown cmd.")
     except Exception as e:
@@ -550,7 +552,7 @@ def Api_AdminFarmDelete(request, farm_id):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def Api_AdminRequestUpdate(request):
-    """Admin edit of any farm (any status, any owner). Same payload as /api/request/update; status is kept."""
+    """Edit an unapproved farm on behalf of its owner."""
     denied = get_admin_only_response(request)
     if denied:
         return denied
@@ -570,8 +572,9 @@ def Api_AdminRequestUpdate(request):
                 request_fail("No farm id.")
 
             farm_obj = get_farm_for_admin(farm_id)
-            farm_obj = update_farm(farm_obj, farm_data, ProfileFarmSerializer, new_status=None)
+            require_editable_farm(farm_obj)
+            farm_obj = update_farm(farm_obj, farm_data, ProfileFarmSerializer)
             sync_farm_children(farm_obj, body)
-            return Response({"message": "ok", "farm_id": farm_obj.id}, status=status.HTTP_200_OK)
+            return Response({"message": "ok", "farm_id": farm_obj.id, "status": farm_obj.status})
     except Exception as e:
         return farm_error_response(e)
