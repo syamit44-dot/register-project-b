@@ -11,6 +11,7 @@ import secrets
 import string
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 
 class ModelCountryChoices(models.TextChoices):
     AF = 'Afghanistan', 'Afghanistan'
@@ -423,6 +424,15 @@ class FarmIconChoices(models.IntegerChoices):
     BARN = 0, "Barn"
     EGG = 1, "Egg"
     LEAF = 2, "Leaf"
+    HOUSE = 3, "House"
+    WAREHOUSE = 4, "Warehouse"
+    TEMPERATURE = 5, "Temperature"
+    STORE = 6, "Store"
+    CONTROLLER = 7, "Controller"
+    CUSTOM = 8, "Custom"
+
+
+FARM_ICON_TEXT_PATTERN = r"\A[A-Za-z0-9]{1,3}\Z"
 
 
 class ProfileFarm(models.Model):
@@ -430,6 +440,7 @@ class ProfileFarm(models.Model):
     status          = models.CharField("Status/สถานะ", max_length=50, choices=StatusChoices.choices, default=StatusChoices.PENDING)
     nameFarm 	    = models.CharField("Name Farm/ชื่อฟาร์มแบบย่อ", max_length=100, unique=True)
     icon_id         = models.PositiveSmallIntegerField(choices=FarmIconChoices.choices, default=FarmIconChoices.BARN)
+    icon_text       = models.CharField(max_length=3, blank=True, default="", validators=[RegexValidator(FARM_ICON_TEXT_PATTERN)])
     numbOfHouse     = models.CharField("Number of House/จำนวนโรงเรือน", max_length=10, default='1')
     ip_address      = models.CharField("หมายเลข IP Controller", max_length=100, default='159.65.6.83:8001')
     ip_manage       = models.CharField("หมายเลข IP Management", max_length=100, default='152.42.174.114:8000')
@@ -455,6 +466,11 @@ class ProfileFarm(models.Model):
     class Meta:
         constraints = [
             models.CheckConstraint(condition=models.Q(icon_id__in=FarmIconChoices.values), name="valid_farm_icon_id"),
+            models.CheckConstraint(
+                condition=(models.Q(icon_id=FarmIconChoices.CUSTOM) & ~models.Q(icon_text=""))
+                | (~models.Q(icon_id=FarmIconChoices.CUSTOM) & models.Q(icon_text="")),
+                name="valid_farm_icon_text",
+            ),
         ]
 
     def __str__(self):

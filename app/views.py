@@ -431,15 +431,22 @@ def Api_FarmIcon(request, farm_id):
     if type(icon_id) is not int or icon_id not in FarmIconChoices.values:
         return Response({"detail": "Invalid icon_id."}, status=status.HTTP_400_BAD_REQUEST)
 
+    icon_text = ""
+    if icon_id == FarmIconChoices.CUSTOM:
+        icon_text = request.data.get("icon_text")
+        if not isinstance(icon_text, str) or not re.fullmatch(FARM_ICON_TEXT_PATTERN, icon_text):
+            return Response({"detail": "Use 1–3 English letters or digits for a custom icon."}, status=status.HTTP_400_BAD_REQUEST)
+
     profile = get_profile(request)
     with transaction.atomic():
         farm = ProfileFarm.objects.select_for_update().filter(pk=farm_id, user=profile).first()
         if farm is None:
             return Response({"detail": "Farm not found."}, status=status.HTTP_404_NOT_FOUND)
         farm.icon_id = icon_id
-        farm.save(update_fields=["icon_id"])
+        farm.icon_text = icon_text
+        farm.save(update_fields=["icon_id", "icon_text"])
 
-    return Response({"icon_id": farm.icon_id})
+    return Response({"icon_id": farm.icon_id, "icon_text": farm.icon_text})
 
 
 @api_view(["POST"])

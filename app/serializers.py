@@ -25,7 +25,7 @@ class ProfileFarmSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProfileFarm
         exclude = ['ip_address', 'ip_manage']
-        read_only_fields = ['id', 'date_created', 'date_edit', 'status', 'icon_id']
+        read_only_fields = ['id', 'date_created', 'date_edit', 'status', 'icon_id', 'icon_text']
         extra_kwargs = {
             'country': {'error_messages': {'invalid_choice': 'Invalid country "{input}".'}},
         }
