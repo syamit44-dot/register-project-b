@@ -385,6 +385,7 @@ class ProfileUser(models.Model):
     login_username_key = models.GeneratedField(
         expression=Lower("login_username"),
         output_field=models.CharField(max_length=LOGIN_USERNAME_MAX_LENGTH),
+        max_length=LOGIN_USERNAME_MAX_LENGTH,
         db_persist=False,
         null=True,
         unique=True,
