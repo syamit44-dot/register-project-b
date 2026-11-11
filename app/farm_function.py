@@ -409,9 +409,9 @@ def sync_userapps(farm_obj, items):
 
     dealer_count = sum(row[5] for row in prepared)
     if dealer_count and farm_obj.user.account_type != WebUserType.DEALER:
-        request_fail("Only Dealer accounts can add a dealer app user.")
+        request_fail("Only Distributor accounts can add a Distributor app user.")
     if dealer_count > 1:
-        request_fail("Only one dealer app user is allowed per farm.")
+        request_fail("Only one Distributor app user is allowed per farm.")
     main_count = len(prepared) - dealer_count
     main_superusers = sum(row[3] == ProfileUserApp.SUPERUSER and not row[5] for row in prepared)
     if main_count > MAX_FARM_USERS or main_superusers > 1:

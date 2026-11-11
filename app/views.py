@@ -7,6 +7,7 @@ from django.contrib.auth.models import User
 from django.db import transaction, IntegrityError
 from django.db.models import Case, Value, When
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
 from rest_framework import serializers, status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -137,7 +138,7 @@ def Api_AccessKey(request, cmd):
 		return Response(data=TempNetResponseMsg.NO_PERM, status=status.HTTP_403_FORBIDDEN)
 
 	if not saleName:
-		return Response({"error": "Who is you sale?."}, status=status.HTTP_400_BAD_REQUEST)
+		return Response({"error": "Enter the seller name."}, status=status.HTTP_400_BAD_REQUEST)
 
 	ass = AccessKey.objects.create(sale=saleName)
 	return Response({"detail": "created", "key": ass.key}, status=201)
@@ -195,7 +196,7 @@ def Api_SignUp(request, cmd):
 	if not country or country not in ModelCountryChoices.values:
 		return Response({"error": "Invalid country."}, status=status.HTTP_400_BAD_REQUEST)
 	if account_type not in WebUserType.values:
-		return Response({"code": "invalid_account_type", "error": "Choose Customer or Dealer."}, status=status.HTTP_400_BAD_REQUEST)
+		return Response({"code": "invalid_account_type", "error": "Choose Customer or Distributor."}, status=status.HTTP_400_BAD_REQUEST)
 	conflict = signup_conflict(username, email)
 	if conflict:
 		return signup_conflict_response(conflict)
@@ -379,6 +380,7 @@ def farm_queryset_with_children():
     )
 
 
+@never_cache
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def Api_EquipmentModels(request):

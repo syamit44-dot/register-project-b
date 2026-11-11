@@ -357,7 +357,7 @@ def key_expire():
 
 class AccessKey(models.Model):
     user            = models.CharField("User", max_length=50, blank=True, null=True)
-    sale            = models.CharField("Sale", max_length=50, blank=True, null=True)
+    sale            = models.CharField("Seller", max_length=50, blank=True, null=True)
     key             = models.CharField("AccessKey", max_length=20, unique=True, default=generate_key)
     is_used         = models.BooleanField(default=False)
     created_at      = models.DateTimeField("Create Date", auto_now_add=True)
@@ -373,7 +373,7 @@ class AccessKey(models.Model):
 
 class WebUserType(models.TextChoices):
     CUSTOMER = "customer", "Customer"
-    DEALER = "dealer", "Dealer"
+    DEALER = "dealer", "Distributor"
 
 
 class ProfileUser(models.Model):
@@ -442,8 +442,8 @@ class ProfileFarm(models.Model):
     contact         = models.CharField("Contact Person/ผู้ติดต่อ", max_length=50, null=True, blank=True)
     mobile          = models.CharField("Phone/เบอร์โทรศัพท์", max_length=50, null=True, blank=True)
     emailFarm       = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
-    saleName        = models.CharField("Sale Name/ชื่อตัวแทนจำหน่าย", max_length=50, null=True, blank=True)
-    saleContract    = models.JSONField("Sale Contract/ช่องทางติดต่อตัวแทนจำหน่าย", null=True, blank=True)
+    saleName        = models.CharField("Seller or Distributor Name/ชื่อพนักงานขายหรือตัวแทนจำหน่าย", max_length=50, null=True, blank=True)
+    saleContract    = models.JSONField("Seller or Distributor Contact/ช่องทางติดต่อพนักงานขายหรือตัวแทนจำหน่าย", null=True, blank=True)
     timezone        = models.CharField("Time Zone", max_length=50, choices=TIMEZONE_CHOICES, default='Asia/Bangkok')
     date_created    = models.DateTimeField(auto_now_add=True)
     date_edit       = models.DateTimeField("Edit time", null=True, blank=True)
@@ -471,7 +471,7 @@ class ProfileUserApp(EquipmentCategoryGuardMixin, models.Model):
     deviceModel     = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="userapps", limit_choices_to={"category": EquipmentCategory.CONTROLLER}, verbose_name='รุ่นเครื่อง')
     username        = models.CharField("Username/ชื่อผู้ใช้งาน", max_length=50, unique=True)
     userType        = models.CharField("User type/ระดับของผู้ใช้", max_length=20, choices=USER_CHOICES, default=USER)
-    isDealer        = models.BooleanField(default=False)
+    isDealer        = models.BooleanField("Distributor app user", default=False)
     userEmail       = models.EmailField("Email/อีเมล", max_length=50, null=True, blank=True)
     date_created    = models.DateTimeField(auto_now_add=True)
 
