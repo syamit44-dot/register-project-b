@@ -1,4 +1,5 @@
 import re
+from collections import defaultdict
 import pytz
 from django.db import IntegrityError
 from rest_framework import serializers, status
@@ -8,7 +9,7 @@ from django.utils import timezone  # after the star import on purpose
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-MAX_FARM_USERS = 5
+MAX_MAIN_USERS_PER_MODEL = 5
 USERNAME_REGEX = re.compile(r"[a-z0-9]+@[a-z0-9]+")
 SALE_CONTRACT_KEYS = ("phone", "line", "email", "other_label", "other_value")
 
@@ -363,7 +364,7 @@ def sync_serial_equipment(farm_obj, items, model_class, model_field, category, l
 
 
 # ---------------------------------------------------------------------------
-# App users (username = name@farm, bound to a controller model)
+# App users (username = name@farm, bound to an installed app-capable model)
 # ---------------------------------------------------------------------------
 def sync_userapps(farm_obj, items):
     """Upsert by id/username, delete rows not submitted."""
@@ -411,20 +412,26 @@ def sync_userapps(farm_obj, items):
             request_fail("isDealer must be a boolean.")
         prepared.append((existing, username, device_model, user_type, user_email, is_dealer))
 
-    dealer_count = sum(row[5] for row in prepared)
-    if dealer_count and farm_obj.user.account_type != WebUserType.DEALER:
-        request_fail("Only Distributor accounts can add a Distributor app user.")
-    if dealer_count > 1:
-        request_fail("Only one Distributor app user is allowed per farm.")
-    main_count = len(prepared) - dealer_count
-    main_superusers = sum(row[3] == ProfileUserApp.SUPERUSER and not row[5] for row in prepared)
-    if main_count > MAX_FARM_USERS or main_superusers > 1:
-        # Existing farms may reduce or keep their legacy counts when editing.
-        previous_main = farm_obj.userapps.filter(isDealer=False)
-        if main_count > MAX_FARM_USERS and main_count > previous_main.count():
-            request_fail(f"Maximum {MAX_FARM_USERS} main app users per farm.")
-        if main_superusers > 1 and main_superusers > previous_main.filter(userType=ProfileUserApp.SUPERUSER).count():
-            request_fail("Only one Superuser is allowed among the main app users.")
+    users_by_model = defaultdict(list)
+    for _, _, device_model, user_type, _, is_dealer in prepared:
+        users_by_model[device_model].append((user_type, is_dealer))
+
+    for model, users in users_by_model.items():
+        dealer_count = sum(is_dealer for _, is_dealer in users)
+        if dealer_count and farm_obj.user.account_type != WebUserType.DEALER:
+            request_fail("Only Distributor accounts can add a Distributor app user.")
+        if dealer_count > 1:
+            request_fail(f"{model.name}: only one Distributor app user is allowed per model.")
+
+        main_count = len(users) - dealer_count
+        main_superusers = sum(user_type == ProfileUserApp.SUPERUSER and not is_dealer for user_type, is_dealer in users)
+        if main_count > MAX_MAIN_USERS_PER_MODEL or main_superusers > 1:
+            # Preserve legacy counts on their current model without allowing them to grow.
+            previous_main = farm_obj.userapps.filter(deviceModel=model, isDealer=False)
+            if main_count > MAX_MAIN_USERS_PER_MODEL and main_count > previous_main.count():
+                request_fail(f"{model.name}: maximum {MAX_MAIN_USERS_PER_MODEL} main app users per model.")
+            if main_superusers > 1 and main_superusers > previous_main.filter(userType=ProfileUserApp.SUPERUSER).count():
+                request_fail(f"{model.name}: only one main app user can be a Superuser per model.")
 
     keep_ids = [p[0].id for p in prepared if p[0]]
     ProfileUserApp.objects.filter(nameFarm=farm_obj).exclude(id__in=keep_ids).delete()
