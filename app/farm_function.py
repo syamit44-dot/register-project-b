@@ -11,6 +11,7 @@ from django.utils import timezone  # after the star import on purpose
 # Constants
 # ---------------------------------------------------------------------------
 MAX_MAIN_USERS_PER_MODEL = 5
+MAX_HOUSES = 90
 USERNAME_REGEX = re.compile(r"[a-z0-9]+@[a-z0-9]+")
 SALE_CONTRACT_KEYS = ("phone", "line", "email", "other_label", "other_value")
 
@@ -158,11 +159,11 @@ def clean_sale_contract(value):
     return cleaned or None
 
 
-def get_num_houses(farm_obj):
-    value = str(farm_obj.numbOfHouse or "").strip()
-    if not value.isdigit() or int(value) < 1:
-        request_fail("Invalid numbOfHouse.")
-    return int(value)
+def validate_house_count(value):
+    count = to_int(value, "numbOfHouse")
+    if count is None or not 1 <= count <= MAX_HOUSES:
+        request_fail(f"Number of houses must be between 1 and {MAX_HOUSES}.")
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +443,12 @@ def sync_userapps(farm_obj, items):
         user_email = normalize_blank(item.get("userEmail")) if "userEmail" in item \
             else (existing.userEmail if existing else None)
 
+        if user_email is not None and (existing is None or user_email != existing.userEmail):
+            try:
+                user_email = serializers.EmailField(max_length=50).run_validation(user_email)
+            except serializers.ValidationError:
+                request_fail(f"Invalid email address for app user '{username}'.")
+
         is_dealer = item.get("isDealer", existing.isDealer if existing else False)
         if not isinstance(is_dealer, bool):
             request_fail("isDealer must be a boolean.")
@@ -495,7 +502,7 @@ def validate_farm_consistency(farm_obj):
     - no house outside 1..numbOfHouse
     - each app user's model belongs to a controller or an app-enabled SmartLink scale in this farm
     """
-    num_houses = get_num_houses(farm_obj)
+    num_houses = validate_house_count(farm_obj.numbOfHouse)
 
     houses = set()
     for _key, model_class, _field, _category, _label in EQUIPMENT_CONFIG:

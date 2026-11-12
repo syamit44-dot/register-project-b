@@ -1,8 +1,11 @@
+import re
+
 from rest_framework import serializers
 from .models import *
 from .farm_function import (
     RequestFarmFail,
     clean_sale_contract,
+    validate_house_count,
     validate_timezone_value,
     validate_username_format,
 )
@@ -41,10 +44,33 @@ class ProfileFarmSerializer(serializers.ModelSerializer):
             "mobile": owner.mobile,
         }
 
+    def validate(self, attrs):
+        required_fields = (
+            "nameFarm", "companyName", "address1", "address2", "townCity", "province",
+            "country", "postcode", "timezone", "contact", "mobile", "emailFarm", "saleName",
+        )
+        errors = {}
+        for field in required_fields:
+            if (self.instance is None or field in attrs) and not attrs.get(field):
+                # Older registrations can be updated without resubmitting an unchanged blank field.
+                if self.instance is None or getattr(self.instance, field) != attrs.get(field):
+                    errors[field] = ["This field is required."]
+        phone = attrs.get("mobile")
+        if phone and re.fullmatch(r"\+[0-9]{1,3}", phone):
+            errors["mobile"] = ["Enter a phone number after the country calling code."]
+        if self.instance is None or "saleContract" in attrs:
+            contact = attrs.get("saleContract") or {}
+            if not any(contact.get(field) for field in ("phone", "line", "email", "other_value")):
+                if self.instance is None or (self.instance.saleContract or {}) != contact:
+                    errors["saleContract"] = ["Enter at least one seller or distributor contact method."]
+        if self.instance is None and attrs.get("pdpa_consent") is not True:
+            errors["pdpa_consent"] = ["Consent is required to register a farm."]
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
     def validate_numbOfHouse(self, value):
-        if not str(value).isdigit() or int(value) < 1:
-            raise serializers.ValidationError("numbOfHouse must be a positive integer")
-        return str(int(value))
+        return str(_run_validator(validate_house_count, value))
 
     def validate_timezone(self, value):
         return _run_validator(validate_timezone_value, value)
