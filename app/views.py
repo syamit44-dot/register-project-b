@@ -517,12 +517,15 @@ def Api_AdminFarmStatus(request, farm_id, cmd):
         with transaction.atomic():
             farm_obj = get_farm_for_admin(farm_id)
             if cmd == "approve":
-                farm_obj.status = StatusChoices.APPROVE
+                next_status = StatusChoices.APPROVE
             elif cmd == "reject":
-                farm_obj.status = StatusChoices.REJECT
+                next_status = StatusChoices.REJECT
             else:
                 request_fail("Unknown cmd.")
-            farm_obj.save(update_fields=["status"])
+            if farm_obj.status != next_status:
+                farm_obj.status = next_status
+                farm_obj.date_edit = next_farm_edit_time(farm_obj)
+                farm_obj.save(update_fields=["status", "date_edit"])
 
             if cmd == "approve":
                 on_farm_approved(farm_obj)

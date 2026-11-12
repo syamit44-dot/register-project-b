@@ -1,5 +1,6 @@
 import re
 from collections import defaultdict
+from datetime import timedelta
 import pytz
 from django.db import IntegrityError
 from rest_framework import serializers, status
@@ -182,17 +183,33 @@ def create_farm(farm_data, owner, farm_serializer_class):
         request_fail("Farm name already exists in the system.")
 
 
+def next_farm_edit_time(farm):
+    now = timezone.now()
+    if farm.date_edit is not None and now <= farm.date_edit:
+        return farm.date_edit + timedelta(microseconds=1)
+    return now
+
+
 def update_farm(farm_obj, farm_data, farm_serializer_class):
     """
     Partially update a farm awaiting approval and return it to review.
     """
+    if "date_edit" not in farm_data:
+        request_fail("Load the farm again before saving. The original date_edit is required.")
+    original_edit_time = serializers.DateTimeField(allow_null=True).run_validation(farm_data["date_edit"])
+    if original_edit_time != farm_obj.date_edit:
+        raise RequestFarmFail(
+            {"code": "farm_edit_conflict", "detail": "This farm was updated. Open the latest information before saving."},
+            http_status=status.HTTP_409_CONFLICT,
+        )
+
     farm_data = dict(farm_data)
     for key in ("id", "status", "user", "date_created", "date_edit"):
         farm_data.pop(key, None)
 
     farm_serializer = farm_serializer_class(farm_obj, data=farm_data, partial=True)
     farm_serializer.is_valid(raise_exception=True)
-    return farm_serializer.save(date_edit=timezone.now(), status=StatusChoices.EDIT)
+    return farm_serializer.save(date_edit=next_farm_edit_time(farm_obj), status=StatusChoices.EDIT)
 
 
 # ---------------------------------------------------------------------------
