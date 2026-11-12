@@ -230,7 +230,7 @@ def clean_device_payload(device, existing=None):
 
 
 def sync_devices(farm_obj, items):
-    """Upsert devices by id, delete rows not submitted. Returns kept ids."""
+    """Upsert devices by id and allow serial transfers within the submitted set."""
     seen_ids, seen_houses, seen_controller, seen_smartlink = set(), set(), set(), set()
     prepared = []
 
@@ -257,17 +257,29 @@ def sync_devices(farm_obj, items):
         else:
             request_fail("No equipment model.")
 
-        exclude_id = existing.id if existing else None
-        if ProfileDevice.objects.filter(controllerSN=controller_sn).exclude(id=exclude_id).exists():
-            request_fail("controllerSN already exists in the system.")
-        if smartlink_sn and ProfileDevice.objects.filter(smartlinkSN=smartlink_sn).exclude(id=exclude_id).exists():
-            request_fail("smartlinkSN already exists in the system.")
-
         prepared.append((existing, device_type, model_temp, house, controller_sn, smartlink_sn))
 
-    # delete rows that were not submitted first (frees unique house / serial values)
-    keep_ids = [p[0].id for p in prepared if p[0]]
-    ProfileDevice.objects.filter(nameFarm=farm_obj).exclude(id__in=keep_ids).delete()
+    other_farms = ProfileDevice.objects.exclude(nameFarm=farm_obj)
+    if other_farms.filter(controllerSN__in=seen_controller).exists():
+        request_fail("controllerSN already exists in the system.")
+    if other_farms.filter(smartlinkSN__in=seen_smartlink).exists():
+        request_fail("smartlinkSN already exists in the system.")
+
+    devices = ProfileDevice.objects.filter(nameFarm=farm_obj)
+    keep_ids = [row[0].pk for row in prepared if row[0]]
+    devices.exclude(pk__in=keep_ids).delete()
+
+    # Release changing serials before saving any row so a swap does not hit the unique index.
+    changing_controller_ids = [
+        existing.pk for existing, _, _, _, controller_sn, _ in prepared
+        if existing and existing.controllerSN != controller_sn
+    ]
+    changing_smartlink_ids = [
+        existing.pk for existing, _, _, _, _, smartlink_sn in prepared
+        if existing and existing.smartlinkSN != smartlink_sn
+    ]
+    devices.filter(pk__in=changing_controller_ids).update(controllerSN=None)
+    devices.filter(pk__in=changing_smartlink_ids).update(smartlinkSN=None)
 
     for existing, device_type, model_temp, house, controller_sn, smartlink_sn in prepared:
         if existing:
@@ -332,10 +344,6 @@ def sync_serial_equipment(farm_obj, items, model_class, model_field, category, l
         else:
             request_fail("No equipment model.")
 
-        exclude_id = existing.id if existing else None
-        if model_class.objects.filter(serialNumber=serial_number).exclude(id=exclude_id).exists():
-            request_fail(f"{label} serialNumber already exists in the system.")
-
         extra = {}
         if model_class is ProfileSilonic:
             use_app = item.get("useApp", bool(existing and existing.useApp and item_type == TypeChoices.SMARTLINK))
@@ -344,8 +352,18 @@ def sync_serial_equipment(farm_obj, items, model_class, model_field, category, l
             extra["useApp"] = use_app
         prepared.append((existing, item_type, equipment_model, house, serial_number, extra))
 
-    keep_ids = [p[0].id for p in prepared if p[0]]
-    model_class.objects.filter(nameFarm=farm_obj).exclude(id__in=keep_ids).delete()
+    if model_class.objects.filter(serialNumber__in=seen_serials).exclude(nameFarm=farm_obj).exists():
+        request_fail(f"{label} serialNumber already exists in the system.")
+
+    equipment = model_class.objects.filter(nameFarm=farm_obj)
+    keep_ids = [row[0].pk for row in prepared if row[0]]
+    equipment.exclude(pk__in=keep_ids).delete()
+
+    changing_serial_ids = [
+        existing.pk for existing, _, _, _, serial_number, _ in prepared
+        if existing and existing.serialNumber != serial_number
+    ]
+    equipment.filter(pk__in=changing_serial_ids).update(serialNumber=None)
 
     for existing, item_type, equipment_model, house, serial_number, extra in prepared:
         if existing:
