@@ -46,8 +46,7 @@ class ProfileFarmSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         required_fields = (
-            "nameFarm", "companyName", "address1", "address2", "townCity", "province",
-            "country", "postcode", "timezone", "contact", "mobile", "emailFarm", "saleName",
+            "nameFarm", "companyName", "country", "timezone", "contact", "mobile", "emailFarm", "saleName",
         )
         errors = {}
         for field in required_fields:
