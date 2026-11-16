@@ -414,7 +414,14 @@ def sync_userapps(farm_obj, items):
 
         username = normalize_blank(item.get("username"))
         request_farm(username, "username is required.")
-        check_dup_in_batch(username, seen_usernames, f"username '{username}' duplicated in submitted data.")
+        if username in seen_usernames:
+            raise RequestFarmFail({
+                "message": "error",
+                "code": "app_username_duplicate",
+                "username": username,
+                "detail": f"username '{username}' duplicated in submitted data.",
+            })
+        seen_usernames.add(username)
 
         existing = None
         if user_id is not None:
@@ -426,7 +433,12 @@ def sync_userapps(farm_obj, items):
             validate_username_format(username)
 
         if ProfileUserApp.objects.filter(username=username).exclude(id=existing.id if existing else None).exists():
-            request_fail(f"username '{username}' already exists in the system.")
+            raise RequestFarmFail({
+                "message": "error",
+                "code": "app_username_taken",
+                "username": username,
+                "detail": f"username '{username}' already exists in the system.",
+            })
 
         if "deviceModel" in item:
             device_model = get_equipment_model(item.get("deviceModel"), *ProfileUserApp.APP_EQUIPMENT_CATEGORIES)
