@@ -412,7 +412,10 @@ def sync_userapps(farm_obj, items):
         user_id = to_int(item.get("id"), "userapp id")
         check_dup_in_batch(user_id, seen_ids, "userapp id duplicated in submitted data.")
 
-        username = normalize_blank(item.get("username"))
+        raw_username = item.get("username")
+        if raw_username is not None and not isinstance(raw_username, str):
+            request_fail("App username must be a string.")
+        username = normalize_blank(raw_username)
         request_farm(username, "username is required.")
         if username in seen_usernames:
             raise RequestFarmFail({
