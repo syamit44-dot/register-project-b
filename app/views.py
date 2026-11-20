@@ -36,6 +36,17 @@ LOGIN_USERNAME_PATTERN = re.compile(r"[A-Za-z0-9]+")
 class SignInRateThrottle(SimpleRateThrottle):
 	scope = 'signin'
 
+	def parse_rate(self, rate):
+		if rate is None:
+			return None, None
+		attempts, period = rate.split('/')
+		match = re.fullmatch(r'([1-9][0-9]*)?([a-zA-Z]+)', period)
+		if match is None:
+			raise ValueError('Invalid signin throttle period')
+		multiplier, unit = match.groups()
+		count, duration = super().parse_rate(f'{attempts}/{unit}')
+		return count, duration * int(multiplier or 1)
+
 	def get_cache_key(self, request, view):
 		identifier = request.data.get('username') if isinstance(request.data, dict) else None
 		if not isinstance(identifier, str) or not identifier.strip():
