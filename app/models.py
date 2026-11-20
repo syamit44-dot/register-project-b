@@ -372,6 +372,15 @@ class AccessKey(models.Model):
         return self.key
 
 
+class LoginRateLimit(models.Model):
+    key = models.CharField(max_length=64, primary_key=True)
+    attempts = models.PositiveIntegerField(default=0)
+    window_started_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "login_rate_limit"
+
+
 class WebUserType(models.TextChoices):
     CUSTOMER = "customer", "Customer"
     DEALER = "dealer", "Distributor"

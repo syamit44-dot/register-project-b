@@ -5,7 +5,8 @@ import re
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db import transaction, IntegrityError
-from django.db.models import Case, Value, When
+from django.db.models import Case, Q, Value, When
+from django.utils.crypto import salted_hmac
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from rest_framework import serializers, status
@@ -36,10 +37,40 @@ class SignInRateThrottle(SimpleRateThrottle):
 	scope = 'signin'
 
 	def get_cache_key(self, request, view):
-		return self.cache_format % {
-			'scope': self.scope,
-			'ident': request.META.get('REMOTE_ADDR'),
-		}
+		identifier = request.data.get('username') if isinstance(request.data, dict) else None
+		if not isinstance(identifier, str) or not identifier.strip():
+			return None
+		identifier = identifier.strip().lower()
+		users = list(User.objects.filter(
+			Q(username__iexact=identifier)
+			| Q(email__iexact=identifier)
+			| Q(profileuser__login_username_key=identifier)
+		).values_list('pk', flat=True)[:2])
+		identity = f'user:{users[0]}' if len(users) == 1 else f'identifier:{identifier}'
+		return salted_hmac('app.signin-rate-limit', identity, algorithm='sha256').hexdigest()
+
+	def allow_request(self, request, view):
+		key = self.get_cache_key(request, view)
+		if key is None:
+			return True
+		with transaction.atomic():
+			LoginRateLimit.objects.get_or_create(key=key)
+			counter = LoginRateLimit.objects.select_for_update().get(key=key)
+			now = timezone.now()
+			elapsed = (now - counter.window_started_at).total_seconds()
+			if elapsed >= self.duration:
+				counter.window_started_at = now
+				counter.attempts = 0
+				elapsed = 0
+			if counter.attempts >= self.num_requests:
+				self.retry_seconds = max(1, self.duration - elapsed)
+				return False
+			counter.attempts += 1
+			counter.save(update_fields=['attempts', 'window_started_at'])
+		return True
+
+	def wait(self):
+		return self.retry_seconds
 
 class TempNetResponseMsg:
 	NO_TOKEN		 	 = {'status': 'Not Found', 'message': 'No Token'}
