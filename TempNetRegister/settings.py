@@ -188,7 +188,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_CLASSES": [],
     "DEFAULT_THROTTLE_RATES": {
-        "signin": "10/min",
+        "signin": "5/min",
     }
 }
 
