@@ -12,7 +12,7 @@ from rest_framework import serializers, status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.throttling import SimpleRateThrottle
 
 from .farm_function import *
 from .jwt import (
@@ -32,8 +32,14 @@ from .utilities import CheckEmailValidate, CheckPasswordValidate, verify_captcha
 logger = logging.getLogger(__name__)
 LOGIN_USERNAME_PATTERN = re.compile(r"[A-Za-z0-9]+")
 
-class SignInRateThrottle(ScopedRateThrottle):
+class SignInRateThrottle(SimpleRateThrottle):
 	scope = 'signin'
+
+	def get_cache_key(self, request, view):
+		return self.cache_format % {
+			'scope': self.scope,
+			'ident': request.META.get('REMOTE_ADDR'),
+		}
 
 class TempNetResponseMsg:
 	NO_TOKEN		 	 = {'status': 'Not Found', 'message': 'No Token'}
