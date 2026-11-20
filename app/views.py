@@ -522,6 +522,9 @@ def Api_AdminFarmStatus(request, farm_id, cmd):
     try:
         with transaction.atomic():
             farm_obj = get_farm_for_admin(farm_id)
+            if not isinstance(request.data, dict):
+                request_fail("Data not object.")
+            validate_farm_version(farm_obj, request.data)
             if cmd == "approve":
                 next_status = StatusChoices.APPROVE
             elif cmd == "reject":
@@ -536,7 +539,10 @@ def Api_AdminFarmStatus(request, farm_id, cmd):
             if cmd == "approve":
                 on_farm_approved(farm_obj)
 
-            return Response({"message": "ok", "farm_id": farm_obj.id, "status": farm_obj.status}, status=status.HTTP_200_OK)
+            return Response({
+                "message": "ok", "farm_id": farm_obj.id, "status": farm_obj.status,
+                "date_edit": ProfileFarmSerializer(farm_obj).data["date_edit"],
+            }, status=status.HTTP_200_OK)
     except Exception as e:
         return farm_error_response(e)
 

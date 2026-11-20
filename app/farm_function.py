@@ -138,7 +138,14 @@ def validate_timezone_value(value):
     return value
 
 
-def clean_sale_contract(value):
+def validate_phone_number(value):
+    digits = re.sub(r"[^0-9]", "", value)
+    if not re.fullmatch(r"\+?[0-9() .-]+", value) or not 7 <= len(digits) <= 15:
+        request_fail("Enter a phone number with 7–15 digits, optionally including +, spaces, parentheses, hyphens or periods.")
+    return value
+
+
+def clean_sale_contract(value, existing_phone=None):
     """saleContract JSON: dict with only known string keys (blank values dropped)."""
     if value is None:
         return None
@@ -153,6 +160,8 @@ def clean_sale_contract(value):
         raw = normalize_blank(raw)
         if raw is None:
             continue
+        if key == "phone" and raw != existing_phone:
+            validate_phone_number(raw)
         if len(raw) > 200:
             request_fail(f"saleContract.{key} is too long.")
         cleaned[key] = raw
@@ -191,10 +200,7 @@ def next_farm_edit_time(farm):
     return now
 
 
-def update_farm(farm_obj, farm_data, farm_serializer_class):
-    """
-    Partially update a farm awaiting approval and return it to review.
-    """
+def validate_farm_version(farm_obj, farm_data):
     if "date_edit" not in farm_data:
         request_fail("Load the farm again before saving. The original date_edit is required.")
     original_edit_time = serializers.DateTimeField(allow_null=True).run_validation(farm_data["date_edit"])
@@ -204,6 +210,10 @@ def update_farm(farm_obj, farm_data, farm_serializer_class):
             http_status=status.HTTP_409_CONFLICT,
         )
 
+
+def update_farm(farm_obj, farm_data, farm_serializer_class):
+    """Partially update a farm awaiting approval and return it to review."""
+    validate_farm_version(farm_obj, farm_data)
     farm_data = dict(farm_data)
     for key in ("id", "status", "user", "date_created", "date_edit"):
         farm_data.pop(key, None)

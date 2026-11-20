@@ -7,6 +7,7 @@ from .farm_function import (
     clean_sale_contract,
     validate_house_count,
     validate_timezone_value,
+    validate_phone_number,
     validate_username_format,
 )
 
@@ -55,8 +56,11 @@ class ProfileFarmSerializer(serializers.ModelSerializer):
                 if self.instance is None or getattr(self.instance, field) != attrs.get(field):
                     errors[field] = ["This field is required."]
         phone = attrs.get("mobile")
-        if phone and re.fullmatch(r"\+[0-9]{1,3}", phone):
-            errors["mobile"] = ["Enter a phone number after the country calling code."]
+        if phone and (self.instance is None or phone != self.instance.mobile):
+            try:
+                _run_validator(validate_phone_number, phone)
+            except serializers.ValidationError as error:
+                errors["mobile"] = error.detail
         if self.instance is None or "saleContract" in attrs:
             contact = attrs.get("saleContract") or {}
             if not any(contact.get(field) for field in ("phone", "line", "email", "other_value")):
@@ -75,7 +79,8 @@ class ProfileFarmSerializer(serializers.ModelSerializer):
         return _run_validator(validate_timezone_value, value)
 
     def validate_saleContract(self, value):
-        return _run_validator(clean_sale_contract, value)
+        existing_phone = (self.instance.saleContract or {}).get("phone") if self.instance else None
+        return _run_validator(clean_sale_contract, value, existing_phone)
 
 
 class ProfileDeviceSerializer(serializers.ModelSerializer):
