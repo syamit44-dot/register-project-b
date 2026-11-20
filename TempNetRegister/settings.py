@@ -188,7 +188,8 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_CLASSES": [],
     "DEFAULT_THROTTLE_RATES": {
-        "signin": "5/3min",
+        "signin": "5/5min",  # Failed credentials per account.
+        "signin_ip": "30/5min",  # All sign-in requests per IP.
     }
 }
 

@@ -1,5 +1,6 @@
 import datetime
 import logging
+import math
 import re
 
 from django.contrib.auth import authenticate
@@ -35,6 +36,7 @@ LOGIN_USERNAME_PATTERN = re.compile(r"[A-Za-z0-9]+")
 
 class SignInRateThrottle(SimpleRateThrottle):
 	scope = 'signin'
+	count_requests = False
 
 	def parse_rate(self, rate):
 		if rate is None:
@@ -58,7 +60,7 @@ class SignInRateThrottle(SimpleRateThrottle):
 			| Q(profileuser__login_username_key=identifier)
 		).values_list('pk', flat=True)[:2])
 		identity = f'user:{users[0]}' if len(users) == 1 else f'identifier:{identifier}'
-		return salted_hmac('app.signin-rate-limit', identity, algorithm='sha256').hexdigest()
+		return salted_hmac(f'app.signin-rate-limit.{self.scope}', identity, algorithm='sha256').hexdigest()
 
 	def allow_request(self, request, view):
 		key = self.get_cache_key(request, view)
@@ -76,12 +78,33 @@ class SignInRateThrottle(SimpleRateThrottle):
 			if counter.attempts >= self.num_requests:
 				self.retry_seconds = max(1, self.duration - elapsed)
 				return False
-			counter.attempts += 1
+			if self.count_requests:
+				counter.attempts += 1
 			counter.save(update_fields=['attempts', 'window_started_at'])
+			self.counter = counter
 		return True
+
+	def record_failure(self):
+		self.counter.attempts += 1
+		self.counter.save(update_fields=['attempts'])
+
+	def reset(self):
+		self.counter.attempts = 0
+		self.counter.window_started_at = timezone.now()
+		self.counter.save(update_fields=['attempts', 'window_started_at'])
 
 	def wait(self):
 		return self.retry_seconds
+
+
+class SignInIPRateThrottle(SignInRateThrottle):
+	scope = 'signin_ip'
+	count_requests = True
+
+	def get_cache_key(self, request, view):
+		# Forwarded headers are client-controlled unless a trusted proxy validates them.
+		identity = request.META.get('REMOTE_ADDR') or 'unknown'
+		return salted_hmac('app.signin-rate-limit.ip', identity, algorithm='sha256').hexdigest()
 
 class TempNetResponseMsg:
 	NO_TOKEN		 	 = {'status': 'Not Found', 'message': 'No Token'}
@@ -297,7 +320,7 @@ def Api_SignUp(request, cmd):
 @api_view(['POST'])
 @authentication_classes([])
 @permission_classes([AllowAny])
-@throttle_classes([SignInRateThrottle])
+@throttle_classes([SignInIPRateThrottle])
 def Api_SignIn(request, cmd):
 	username = request.data.get('username', None)
 	password = request.data.get('password', None)
@@ -313,9 +336,23 @@ def Api_SignIn(request, cmd):
 	if not isinstance(username, str) or not username.strip() or not isinstance(password, str) or not password:
 		return Response({'status': 'Failure', 'message': 'Username and password required'}, status=status.HTTP_400_BAD_REQUEST)
 
-	login_username = resolve_login_username(username.strip(), admin_login=(cmd == "admin"))
+	return sign_in_with_account_limit(request, cmd, username.strip(), password)
+
+
+@transaction.atomic
+def sign_in_with_account_limit(request, cmd, username, password):
+	# Hold the account row lock through authentication so parallel failures cannot bypass the limit.
+	account_limit = SignInRateThrottle()
+	if not account_limit.allow_request(request, None):
+		return Response(
+			{'message': 'Please try again later.'},
+			status=status.HTTP_429_TOO_MANY_REQUESTS,
+			headers={'Retry-After': str(math.ceil(account_limit.wait()))},
+		)
+	login_username = resolve_login_username(username, admin_login=(cmd == "admin"))
 	user = authenticate(request, username=login_username, password=password)
 	if user is None or user.username != login_username:
+		account_limit.record_failure()
 		return Response({'status': 'Failure', 'message': 'Login failed'}, status=status.HTTP_401_UNAUTHORIZED)
 
 	admin = is_admin_user(user)
@@ -343,6 +380,7 @@ def Api_SignIn(request, cmd):
 	}, status=status.HTTP_200_OK)
 
 	set_refresh_cookie(response, request, refresh_token)
+	account_limit.reset()
 	return response
 
 
